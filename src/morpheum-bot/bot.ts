@@ -11,6 +11,8 @@ import { CopilotClient } from "./copilotClient";
 import { getTaskFiles, filterUncompletedTasks, assembleTasksMarkdown } from "./task-utils";
 import * as net from "net";
 import { normalizeArgsArray } from "./dash-normalizer";
+import { ProjectRoomManager, ProjectRoomConfig } from "./project-room-manager";
+import { MatrixClient } from "matrix-bot-sdk";
 
 type MessageSender = (message: string, html?: string) => Promise<void>;
 
@@ -52,6 +54,8 @@ function sendMarkdownMessage(markdown: string, sendMessage: MessageSender): Prom
 export class MorpheumBot {
   private sweAgent: SWEAgent;
   private tokenManager?: TokenManager;
+  private matrixClient?: MatrixClient;
+  private projectRoomManager?: ProjectRoomManager;
 
   private currentLLMClient: LLMClient;
   private currentLLMProvider: 'openai' | 'ollama' | 'copilot';
@@ -60,6 +64,9 @@ export class MorpheumBot {
     ollama: { model: string; baseUrl: string };
     copilot: { apiKey?: string; repository?: string; baseUrl: string; pollInterval: string };
   };
+  
+  // Per-room configurations for project rooms
+  private roomConfigs: Map<string, ProjectRoomConfig> = new Map();
 
   constructor(tokenManager?: TokenManager) {
     this.tokenManager = tokenManager;
@@ -103,6 +110,14 @@ export class MorpheumBot {
     const jailPort = parseInt(process.env.JAIL_PORT || "10001", 10);
     const jailClient = new JailClient(jailHost, jailPort);
     this.sweAgent = new SWEAgent(this.currentLLMClient, jailClient);
+  }
+
+  /**
+   * Set the Matrix client for this bot instance (used for project room management)
+   */
+  setMatrixClient(matrixClient: MatrixClient): void {
+    this.matrixClient = matrixClient;
+    this.projectRoomManager = new ProjectRoomManager(matrixClient);
   }
 
   /**
@@ -191,10 +206,13 @@ export class MorpheumBot {
     body: string,
     sender: string,
     sendMessage: MessageSender,
+    roomId?: string,
   ): Promise<any> {
     if (body.startsWith("!create")) {
       const port = body.split(" ")[1] || "10001";
       return await this.handleCreateCommand(sendMessage, port);
+    } else if (body.startsWith("!project")) {
+      await this.handleProjectCommand(body, sendMessage, roomId || '', sender);
     } else if (body.startsWith("!")) {
       await this.handleInfoCommand(body, sendMessage);
     } else {
@@ -246,6 +264,7 @@ Available commands:
 - \`!copilot status [session-id]\` - Check copilot session status
 - \`!copilot list\` - List active copilot sessions
 - \`!copilot cancel <session-id>\` - Cancel a copilot session
+- \`!project create <git-url>\` - Create a new project room for a GitHub repository
 - \`!gauntlet help\` - Show gauntlet evaluation help
 - \`!gauntlet list\` - List available gauntlet tasks
 - \`!gauntlet run --model <model> [--provider <openai|ollama>] [--task <task>]\` - Run gauntlet evaluation (supports Unicode dashes like —model)
@@ -624,6 +643,98 @@ ${resultSummary}
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       await sendMessage(`❌ Error running gauntlet: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Handle !project command - manage project rooms
+   */
+  private async handleProjectCommand(body: string, sendMessage: MessageSender, roomId: string, userId: string) {
+    if (!this.projectRoomManager) {
+      await sendMessage('❌ Project room functionality is not available. Matrix client not configured.');
+      return;
+    }
+
+    const parts = body.split(' ');
+    const subcommand = parts[1];
+
+    if (subcommand === 'create') {
+      await this.handleProjectCreate(parts.slice(2), sendMessage, roomId, userId);
+    } else if (subcommand === 'help') {
+      const helpMessage = `🏗️  **Project Room Management**
+
+**Create a project room:**
+\`!project create <git-url>\`
+
+**Supported URL formats:**
+- SSH: git@github.com:user/repo
+- HTTPS: https://github.com/user/repo
+- Short: user/repo
+
+**Examples:**
+- \`!project create git@github.com:facebook/react\`
+- \`!project create https://github.com/vercel/next.js\`
+- \`!project create microsoft/vscode\`
+
+**Features:**
+✅ Automatic GitHub Copilot integration
+✅ Private invite-only rooms
+✅ Project-specific AI context
+✅ Persistent configuration`;
+
+      await sendMarkdownMessage(helpMessage, sendMessage);
+    } else {
+      await sendMessage('Usage: !project <create|help>\\nUse `!project help` for detailed information.');
+    }
+  }
+
+  /**
+   * Handle project room creation
+   */
+  private async handleProjectCreate(args: string[], sendMessage: MessageSender, roomId: string, userId: string) {
+    if (args.length === 0) {
+      await sendMessage('❌ Git URL is required. Usage: !project create <git-url>\\nExample: !project create facebook/react');
+      return;
+    }
+
+    const gitUrl = args[0]!;
+    
+    try {
+      await sendMessage('🔨 Creating project room...');
+      
+      // Create the project room
+      const creationResult = await this.projectRoomManager!.createProjectRoom(gitUrl, userId);
+      
+      if (!creationResult.success) {
+        await sendMessage(`❌ ${creationResult.error}`);
+        return;
+      }
+
+      const { roomId: newRoomId, projectName } = creationResult;
+      
+      // Invite the user to the new room
+      const invitationResult = await this.projectRoomManager!.inviteUserToRoom(newRoomId!, userId);
+      
+      if (!invitationResult.success) {
+        await sendMessage(`✅ Project room '${projectName}' created, but failed to invite you: ${invitationResult.error}\\nPlease join manually: ${newRoomId}`);
+        return;
+      }
+
+      // Store room configuration locally for quick access
+      const projectConfig = await this.projectRoomManager!.getProjectConfig(newRoomId!);
+      if (projectConfig) {
+        this.roomConfigs.set(newRoomId!, projectConfig);
+      }
+
+      // Send confirmation message in the original room
+      await sendMessage(`✅ Project room '${projectName}' created! You've been invited to join.`);
+
+      // Send welcome message in the new room
+      await this.projectRoomManager!.sendWelcomeMessage(newRoomId!, projectConfig?.repository || gitUrl);
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      await sendMessage(`❌ Unexpected error creating project room: ${errorMessage}`);
     }
   }
 
