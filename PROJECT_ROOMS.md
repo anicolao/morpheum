@@ -94,10 +94,6 @@ As a developer using Morpheum, I want to create dedicated Matrix rooms for speci
    - Store configuration in custom state events
    - Persistent across bot restarts
    - Accessible to authorized room members
-   
-2. **Local Storage/Database**
-   - Room ID to repository mapping
-   - Faster access but requires backup/sync
 
 ### 5. Command Handler Integration
 
@@ -230,7 +226,7 @@ Bot: ⚠️  Room created successfully, but unable to verify GitHub repository a
 
 **Anti-Abuse Measures:**
 - Limit room creation to 1 per user per 5 minutes
-- Maximum 10 project rooms per user total
+- Maximum 100 project rooms per user total
 - Server-wide limits to prevent spam
 
 **Implementation:**
@@ -292,7 +288,7 @@ interface ProjectRoomConfig {
 ```bash
 # Optional: Restrict project room creation
 PROJECT_ROOMS_ENABLED=true
-PROJECT_ROOMS_MAX_PER_USER=10
+PROJECT_ROOMS_MAX_PER_USER=100
 PROJECT_ROOMS_RATE_LIMIT_MINUTES=5
 
 # Optional: Default room settings
@@ -397,12 +393,6 @@ PROJECT_ROOMS_DEFAULT_POWER_LEVEL=50
 - Integration with GitHub webhooks for real-time updates
 - Project templates and room customization
 - Cross-room project linking and dependencies
-
-### Phase 4: Enterprise Features
-- Organization-level project room management
-- RBAC integration with GitHub teams
-- Audit logging and compliance features
-- Custom AI model configurations per project
 
 ## Implementation Plan
 
