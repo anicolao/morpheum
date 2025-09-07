@@ -10,6 +10,93 @@ import {
 import { startMessageQueue, queueMessage } from "./message-queue";
 import { MorpheumBot } from "./bot";
 import { TokenManager } from "./token-manager";
+import { normalizeDashes } from "./dash-normalizer";
+
+// Parse command line arguments
+interface ParsedArgs {
+  register?: string;
+}
+
+function parseArgs(): ParsedArgs {
+  const args = process.argv.slice(2);
+  const normalizedArgs = args.map(normalizeDashes);
+  const result: ParsedArgs = {};
+
+  for (let i = 0; i < normalizedArgs.length; i++) {
+    if (normalizedArgs[i] === '--register' && i + 1 < normalizedArgs.length) {
+      result.register = normalizedArgs[i + 1];
+      i++; // Skip next argument
+    } else if (normalizedArgs[i] === '--register') {
+      console.error("Error: --register requires a server URL argument");
+      console.error("Usage: bun src/index.ts --register <server-url>");
+      console.error("Example: bun src/index.ts --register matrix.morpheum.dev");
+      process.exit(1);
+    } else if (normalizedArgs[i]?.startsWith('-')) {
+      console.error(`Unknown argument: ${args[i]}`);
+      console.error("Usage: bun src/index.ts [--register <server-url>]");
+      process.exit(1);
+    }
+  }
+
+  return result;
+}
+
+const parsedArgs = parseArgs();
+
+// Functions for registration
+function generateRegistrationTokenEnvVar(serverUrl: string): string {
+  // Convert server URL to environment variable name
+  // e.g., matrix.morpheum.dev -> REGISTRATION_TOKEN_MATRIX_MORPHEUM_DEV
+  const cleanServerName = serverUrl
+    .replace(/[^a-zA-Z0-9]/g, '_')  // Replace non-alphanumeric with underscore
+    .replace(/_+/g, '_')           // Replace multiple underscores with single
+    .replace(/^_|_$/g, '')         // Remove leading/trailing underscores
+    .toUpperCase();
+  
+  return `REGISTRATION_TOKEN_${cleanServerName}`;
+}
+
+async function registerUser(serverUrl: string, username: string, password: string): Promise<void> {
+  const registrationTokenEnvVar = generateRegistrationTokenEnvVar(serverUrl);
+  const registrationToken = process.env[registrationTokenEnvVar];
+  
+  if (!registrationToken) {
+    console.error(`Error: Registration token not found in environment variable ${registrationTokenEnvVar}`);
+    console.error(`Please set ${registrationTokenEnvVar} with your registration token`);
+    process.exit(1);
+  }
+
+  console.log(`[Registration] Attempting to register user on ${serverUrl}`);
+  console.log(`[Registration] Using registration token from ${registrationTokenEnvVar}`);
+
+  try {
+    // Import matrix-js-sdk for registration
+    const sdk = await import('matrix-js-sdk');
+    const client = sdk.createClient({
+      baseUrl: `https://${serverUrl}`,
+    });
+
+    // Register the user with the registration token
+    const authData = {
+      type: 'm.login.registration_token',
+      token: registrationToken,
+    };
+
+    await client.register(username, password, null, authData);
+    console.log(`[Registration] Successfully registered user ${username} on ${serverUrl}`);
+  } catch (error: any) {
+    if (error.errcode === 'M_USER_IN_USE') {
+      console.log(`[Registration] User ${username} already exists on ${serverUrl}, proceeding with login`);
+      return; // User already exists, this is okay
+    }
+    
+    console.error(`[Registration] Failed to register user: ${error.message}`);
+    if (error.data?.error) {
+      console.error(`[Registration] Server error: ${error.data.error}`);
+    }
+    process.exit(1);
+  }
+}
 
 // read environment variables
 const homeserverUrl = process.env.HOMESERVER_URL;
@@ -17,10 +104,40 @@ const accessToken = process.env.ACCESS_TOKEN;
 const username = process.env.MATRIX_USERNAME;
 const password = process.env.MATRIX_PASSWORD;
 
-if (!homeserverUrl) {
-  console.error("HOMESERVER_URL environment variable is required.");
-  process.exit(1);
-}
+// Determine effective homeserver URL
+let effectiveHomeserverUrl: string;
+
+// Main execution function
+async function main() {
+  let bot: any;
+  let tokenManager: TokenManager | undefined;
+  let client: MatrixClient;
+  
+  // Handle registration if --register flag is provided
+  if (parsedArgs.register) {
+    if (!username || !password) {
+      console.error("Error: --register requires MATRIX_USERNAME and MATRIX_PASSWORD environment variables");
+      console.error("These will be used to register the new user account");
+      process.exit(1);
+    }
+    
+    // Override homeserver URL if registering on a different server
+    const registrationServer = parsedArgs.register;
+    effectiveHomeserverUrl = `https://${registrationServer}`;
+    
+    // Register the user first
+    await registerUser(registrationServer, username, password);
+    
+    // Update homeserver URL for subsequent operations
+    console.log(`[Registration] Setting homeserver URL to ${effectiveHomeserverUrl} for login`);
+    process.env.HOMESERVER_URL = effectiveHomeserverUrl;
+  } else {
+    if (!homeserverUrl) {
+      console.error("HOMESERVER_URL environment variable is required.");
+      process.exit(1);
+    }
+    effectiveHomeserverUrl = homeserverUrl;
+  }
 
 // Require either ACCESS_TOKEN or both MATRIX_USERNAME and MATRIX_PASSWORD
 if (!accessToken && (!username || !password)) {
@@ -32,8 +149,6 @@ if (!accessToken && (!username || !password)) {
 
 let currentToken = accessToken;
 let currentRefreshToken: string | undefined;
-let tokenManager: TokenManager | undefined;
-let client: MatrixClient;
 
 // Setup token manager based on available credentials
 if (username && password) {
@@ -43,7 +158,7 @@ if (username && password) {
   if (!currentToken) {
     console.log("[Auth] No initial access token provided, obtaining one...");
     tokenManager = new TokenManager({
-      homeserverUrl,
+      homeserverUrl: effectiveHomeserverUrl,
       username,
       password,
     });
@@ -67,7 +182,7 @@ if (username && password) {
   
   // Setup token refresh callback
   tokenManager = new TokenManager({
-    homeserverUrl,
+    homeserverUrl: effectiveHomeserverUrl,
     username,
     password,
     accessToken: currentToken,
@@ -78,8 +193,8 @@ if (username && password) {
       // Stop the old client
       await client.stop();
       // Create new client with new token
-      client = createMatrixClient(newToken);
-      setupClientHandlers(client);
+      client = createMatrixClient(newToken, effectiveHomeserverUrl);
+      setupClientHandlers(client, bot, tokenManager);
       // Restart the client
       await client.start();
       console.log("[Auth] Client reconnected with new token");
@@ -100,25 +215,13 @@ if (username && password) {
 }
 
 // Create bot instance with tokenManager if available
-const bot = new MorpheumBot(tokenManager);
+bot = new MorpheumBot(tokenManager);
 
-function createMatrixClient(token: string): MatrixClient {
-  // We'll want to make sure the bot doesn't have to do an initial sync every
-  // time it restarts, so we need to prepare a storage provider. Here we use
-  // a simple file storage provider.
-  const storage = new SimpleFsStorageProvider("bot.json");
-  
-  // Now we can create the client.
-  const matrixClient = new MatrixClient(homeserverUrl, token, storage);
-  
-  // Setup the autojoin mixin
-  AutojoinRoomsMixin.setupOnClient(matrixClient);
-  
-  return matrixClient;
-}
+// Create bot instance with tokenManager if available
+bot = new MorpheumBot(tokenManager);
 
 // Create initial client
-client = createMatrixClient(currentToken!);
+client = createMatrixClient(currentToken!, effectiveHomeserverUrl);
 
 // Before we start the client, let's set up a few things.
 
@@ -137,7 +240,31 @@ LogService.setLogger({
     console.trace(new Date().toISOString(), "[TRACE]", ...args),
 });
 
-function setupClientHandlers(matrixClient: MatrixClient) {
+// Setup handlers for initial client
+setupClientHandlers(client, bot, tokenManager);
+
+// And now we can start the client.
+startMessageQueue(client);
+await client.start();
+console.log("Morpheum Bot started!");
+}
+
+function createMatrixClient(token: string, homeserverUrl: string): MatrixClient {
+  // We'll want to make sure the bot doesn't have to do an initial sync every
+  // time it restarts, so we need to prepare a storage provider. Here we use
+  // a simple file storage provider.
+  const storage = new SimpleFsStorageProvider("bot.json");
+  
+  // Now we can create the client.
+  const matrixClient = new MatrixClient(homeserverUrl, token, storage);
+  
+  // Setup the autojoin mixin
+  AutojoinRoomsMixin.setupOnClient(matrixClient);
+  
+  return matrixClient;
+}
+
+function setupClientHandlers(matrixClient: MatrixClient, bot: any, tokenManager?: TokenManager) {
   // Set up a command handler with token refresh capability
   matrixClient.on("room.message", async (roomId, event) => {
     const wrappedHandler = async () => {
@@ -210,11 +337,8 @@ function setupClientHandlers(matrixClient: MatrixClient) {
   });
 }
 
-// Setup handlers for initial client
-setupClientHandlers(client);
-
-// And now we can start the client.
-startMessageQueue(client);
-client.start().then(() => {
-  console.log("Morpheum Bot started!");
+// Start the bot
+main().catch((error) => {
+  console.error("Failed to start bot:", error);
+  process.exit(1);
 });
