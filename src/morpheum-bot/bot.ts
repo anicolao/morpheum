@@ -11,6 +11,8 @@ import { CopilotClient } from "./copilotClient";
 import { getTaskFiles, filterUncompletedTasks, assembleTasksMarkdown } from "./task-utils";
 import * as net from "net";
 import { normalizeArgsArray } from "./dash-normalizer";
+import { ProjectRoomManager, ProjectRoomConfig } from "./project-room-manager";
+import { MatrixClient } from "matrix-bot-sdk";
 
 type MessageSender = (message: string, html?: string) => Promise<void>;
 
@@ -52,6 +54,8 @@ function sendMarkdownMessage(markdown: string, sendMessage: MessageSender): Prom
 export class MorpheumBot {
   private sweAgent: SWEAgent;
   private tokenManager?: TokenManager;
+  private matrixClient?: MatrixClient;
+  private projectRoomManager?: ProjectRoomManager;
 
   private currentLLMClient: LLMClient;
   private currentLLMProvider: 'openai' | 'ollama' | 'copilot';
@@ -60,6 +64,9 @@ export class MorpheumBot {
     ollama: { model: string; baseUrl: string };
     copilot: { apiKey?: string; repository?: string; baseUrl: string; pollInterval: string };
   };
+  
+  // Per-room configurations for project rooms
+  private roomConfigs: Map<string, ProjectRoomConfig> = new Map();
 
   constructor(tokenManager?: TokenManager) {
     this.tokenManager = tokenManager;
@@ -103,6 +110,14 @@ export class MorpheumBot {
     const jailPort = parseInt(process.env.JAIL_PORT || "10001", 10);
     const jailClient = new JailClient(jailHost, jailPort);
     this.sweAgent = new SWEAgent(this.currentLLMClient, jailClient);
+  }
+
+  /**
+   * Set the Matrix client for this bot instance (used for project room management)
+   */
+  setMatrixClient(matrixClient: MatrixClient): void {
+    this.matrixClient = matrixClient;
+    this.projectRoomManager = new ProjectRoomManager(matrixClient);
   }
 
   /**
@@ -191,14 +206,17 @@ export class MorpheumBot {
     body: string,
     sender: string,
     sendMessage: MessageSender,
+    roomId?: string,
   ): Promise<any> {
     if (body.startsWith("!create")) {
       const port = body.split(" ")[1] || "10001";
       return await this.handleCreateCommand(sendMessage, port);
+    } else if (body.startsWith("!project")) {
+      await this.handleProjectCommand(body, sendMessage, roomId || '', sender);
     } else if (body.startsWith("!")) {
-      await this.handleInfoCommand(body, sendMessage);
+      await this.handleInfoCommand(body, sendMessage, roomId);
     } else {
-      return await this.handleTask(body, sendMessage);
+      return await this.handleTask(body, sendMessage, roomId);
     }
   }
 
@@ -227,7 +245,7 @@ export class MorpheumBot {
     }
   }
 
-  private async handleInfoCommand(body: string, sendMessage: MessageSender) {
+  private async handleInfoCommand(body: string, sendMessage: MessageSender, roomId?: string) {
     if (body.startsWith("!help")) {
       const message = `Hello! I am the Morpheum Bot. I am still under development.
 
@@ -246,6 +264,7 @@ Available commands:
 - \`!copilot status [session-id]\` - Check copilot session status
 - \`!copilot list\` - List active copilot sessions
 - \`!copilot cancel <session-id>\` - Cancel a copilot session
+- \`!project create <git-url>\` - Create a new project room for a GitHub repository
 - \`!gauntlet help\` - Show gauntlet evaluation help
 - \`!gauntlet list\` - List available gauntlet tasks
 - \`!gauntlet run --model <model> [--provider <openai|ollama>] [--task <task>]\` - Run gauntlet evaluation (supports Unicode dashes like —model)
@@ -268,7 +287,7 @@ For regular tasks, just type your request without a command prefix.`;
     } else if (body.startsWith("!token refresh")) {
       await this.handleTokenRefreshCommand(sendMessage);
     } else if (body.startsWith("!llm")) {
-      await this.handleLLMCommand(body, sendMessage);
+      await this.handleLLMCommand(body, sendMessage, roomId);
     } else if (body.startsWith("!openai")) {
       await this.handleDirectOpenAICommand(body, sendMessage);
     } else if (body.startsWith("!ollama")) {
@@ -280,17 +299,52 @@ For regular tasks, just type your request without a command prefix.`;
     }
   }
 
-  private async handleLLMCommand(body: string, sendMessage: MessageSender) {
+  private async handleLLMCommand(body: string, sendMessage: MessageSender, roomId?: string) {
     const parts = body.split(' ');
     const subcommand = parts[1];
 
     if (subcommand === 'status') {
-      const status = `Current LLM Provider: ${this.currentLLMProvider}
-Configuration:
+      // Build status message starting with global configuration
+      let status = `**Global LLM Configuration:**
+Current Provider: ${this.currentLLMProvider}
 - OpenAI: model=${this.llmConfig.openai.model}, baseUrl=${this.llmConfig.openai.baseUrl}, apiKey=${this.llmConfig.openai.apiKey ? 'configured' : 'not configured'}
 - Ollama: model=${this.llmConfig.ollama.model}, baseUrl=${this.llmConfig.ollama.baseUrl}
 - Copilot: repository=${this.llmConfig.copilot.repository || 'not configured'}, baseUrl=${this.llmConfig.copilot.baseUrl}, apiKey=${this.llmConfig.copilot.apiKey ? 'configured' : 'not configured'}`;
-      await sendMessage(status);
+
+      // Check for room-specific configuration
+      if (roomId && this.projectRoomManager) {
+        let projectConfig: ProjectRoomConfig | null = null;
+        
+        // Check cache first
+        if (this.roomConfigs.has(roomId)) {
+          projectConfig = this.roomConfigs.get(roomId)!;
+        } else {
+          // Try to fetch from Matrix room state
+          try {
+            projectConfig = await this.projectRoomManager.getProjectConfig(roomId);
+            if (projectConfig) {
+              this.roomConfigs.set(roomId, projectConfig);
+            }
+          } catch (error) {
+            // Room doesn't have project configuration - this is normal for non-project rooms
+          }
+        }
+
+        if (projectConfig) {
+          status += `\n\n**🏗️ Project Room Configuration:**
+This room has project-specific settings that override global config for tasks:
+- Repository: ${projectConfig.repository}
+- LLM Provider: ${projectConfig.llmProvider}
+- Created by: ${projectConfig.created_by}
+- Created at: ${projectConfig.created_at}
+
+*Note: Tasks in this room will automatically use Copilot with repository '${projectConfig.repository}'*`;
+        } else {
+          status += `\n\n**Room Status:** Regular room (no project-specific configuration)`;
+        }
+      }
+
+      await sendMarkdownMessage(status, sendMessage);
     } else if (subcommand === 'switch') {
       const provider = parts[2] as 'openai' | 'ollama' | 'copilot';
       if (!provider || !['openai', 'ollama', 'copilot'].includes(provider)) {
@@ -627,15 +681,207 @@ ${resultSummary}
     }
   }
 
-  private async handleTask(task: string, sendMessage: MessageSender) {
-    const identifier = this.currentLLMProvider === 'copilot' 
-      ? this.llmConfig.copilot.repository 
-      : this.llmConfig[this.currentLLMProvider].model;
+  /**
+   * Handle !project command - manage project rooms
+   */
+  private async handleProjectCommand(body: string, sendMessage: MessageSender, roomId: string, userId: string) {
+    if (!this.projectRoomManager) {
+      await sendMessage('❌ Project room functionality is not available. Matrix client not configured.');
+      return;
+    }
+
+    const parts = body.split(' ');
+    const subcommand = parts[1];
+
+    if (subcommand === 'create') {
+      await this.handleProjectCreate(parts.slice(2), sendMessage, roomId, userId);
+    } else if (subcommand === 'help') {
+      const helpMessage = `🏗️  **Project Room Management**
+
+**Create a project room:**
+\`!project create <git-url>\`
+
+**Supported URL formats:**
+- SSH: git@github.com:user/repo
+- HTTPS: https://github.com/user/repo
+- Short: user/repo
+
+**Examples:**
+- \`!project create git@github.com:facebook/react\`
+- \`!project create https://github.com/vercel/next.js\`
+- \`!project create microsoft/vscode\`
+
+**Features:**
+✅ Automatic GitHub Copilot integration
+✅ Private invite-only rooms
+✅ Project-specific AI context
+✅ Persistent configuration`;
+
+      await sendMarkdownMessage(helpMessage, sendMessage);
+    } else {
+      await sendMessage('Usage: !project <create|help>\\nUse `!project help` for detailed information.');
+    }
+  }
+
+  /**
+   * Handle project room creation
+   */
+  private async handleProjectCreate(args: string[], sendMessage: MessageSender, roomId: string, userId: string) {
+    if (args.length === 0) {
+      await sendMessage('❌ Git URL is required. Usage: !project create <git-url>\\nExample: !project create facebook/react');
+      return;
+    }
+
+    const gitUrl = args[0]!;
     
-    await sendMessage(`🚀 Working on: "${task}" using ${this.currentLLMProvider} (${identifier})...`);
+    try {
+      await sendMessage('🔨 Creating project room...');
+      
+      // Create the project room
+      const creationResult = await this.projectRoomManager!.createProjectRoom(gitUrl, userId);
+      
+      if (!creationResult.success) {
+        await sendMessage(`❌ ${creationResult.error}`);
+        return;
+      }
+
+      const { roomId: newRoomId, projectName } = creationResult;
+      
+      // Invite the user to the new room
+      const invitationResult = await this.projectRoomManager!.inviteUserToRoom(newRoomId!, userId);
+      
+      if (!invitationResult.success) {
+        await sendMessage(`✅ Project room '${projectName}' created, but failed to invite you: ${invitationResult.error}\\nPlease join manually: ${newRoomId}`);
+        return;
+      }
+
+      // Store room configuration locally for quick access
+      const projectConfig = await this.projectRoomManager!.getProjectConfig(newRoomId!);
+      if (projectConfig) {
+        this.roomConfigs.set(newRoomId!, projectConfig);
+      }
+
+      // Send confirmation message in the original room
+      await sendMessage(`✅ Project room '${projectName}' created! You've been invited to join.`);
+
+      // Send welcome message in the new room
+      await this.projectRoomManager!.sendWelcomeMessage(newRoomId!, projectConfig?.repository || gitUrl);
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      await sendMessage(`❌ Unexpected error creating project room: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Apply room-specific configuration if the room has project configuration
+   * Returns the original configuration state to restore later
+   */
+  private async applyRoomSpecificConfig(roomId?: string): Promise<{
+    provider: 'openai' | 'ollama' | 'copilot';
+    repository?: string;
+    client: LLMClient;
+  } | null> {
+    if (!roomId || !this.projectRoomManager) {
+      return null;
+    }
+
+    // Check if this room has project configuration
+    let projectConfig: ProjectRoomConfig | null = null;
     
-    // Create a streaming version of the SWE agent run
-    await this.runSWEAgentWithStreaming(task, sendMessage);
+    // First check our local cache
+    if (this.roomConfigs.has(roomId)) {
+      projectConfig = this.roomConfigs.get(roomId)!;
+    } else {
+      // If not in cache, try to fetch from Matrix room state
+      try {
+        projectConfig = await this.projectRoomManager.getProjectConfig(roomId);
+        if (projectConfig) {
+          this.roomConfigs.set(roomId, projectConfig);
+        }
+      } catch (error) {
+        // Room doesn't have project configuration or we can't access it
+        return null;
+      }
+    }
+
+    if (!projectConfig || projectConfig.llmProvider !== 'copilot') {
+      return null;
+    }
+
+    // Save original configuration
+    const originalConfig = {
+      provider: this.currentLLMProvider,
+      repository: this.llmConfig.copilot.repository,
+      client: this.currentLLMClient
+    };
+
+    // Apply project room configuration
+    try {
+      this.validateApiKey('copilot');
+      
+      // Update configuration for this project
+      this.llmConfig.copilot.repository = projectConfig.repository;
+      this.currentLLMProvider = 'copilot';
+      
+      // Create new LLM client with project repository
+      this.currentLLMClient = new CopilotClient(
+        this.llmConfig.copilot.apiKey!,
+        projectConfig.repository,
+        this.llmConfig.copilot.baseUrl
+      );
+      
+      // Update the SWE agent with the new LLM client
+      this.sweAgent = new SWEAgent(this.currentLLMClient, this.sweAgent.currentJailClient);
+      
+      return originalConfig;
+    } catch (error) {
+      // If we can't switch to copilot, revert to original config
+      console.error('[ProjectRoom] Failed to apply project configuration:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Restore the original configuration after processing a room-specific task
+   */
+  private async restoreOriginalConfig(originalConfig: {
+    provider: 'openai' | 'ollama' | 'copilot';
+    repository?: string;
+    client: LLMClient;
+  }): Promise<void> {
+    try {
+      // Restore original configuration
+      this.currentLLMProvider = originalConfig.provider;
+      this.llmConfig.copilot.repository = originalConfig.repository;
+      this.currentLLMClient = originalConfig.client;
+      
+      // Update the SWE agent with the original LLM client
+      this.sweAgent = new SWEAgent(this.currentLLMClient, this.sweAgent.currentJailClient);
+    } catch (error) {
+      console.error('[ProjectRoom] Failed to restore original configuration:', error);
+    }
+  }
+
+  private async handleTask(task: string, sendMessage: MessageSender, roomId?: string) {
+    // Check for room-specific configuration and apply if present
+    const originalConfig = await this.applyRoomSpecificConfig(roomId);
+    
+    try {
+      const identifier = this.currentLLMProvider === 'copilot' 
+        ? this.llmConfig.copilot.repository 
+        : this.llmConfig[this.currentLLMProvider].model;
+      
+      await sendMessage(`🚀 Working on: "${task}" using ${this.currentLLMProvider} (${identifier})...`);
+      
+      // Create a streaming version of the SWE agent run
+      await this.runSWEAgentWithStreaming(task, sendMessage);
+    } finally {
+      // Restore original configuration
+      if (originalConfig) {
+        await this.restoreOriginalConfig(originalConfig);
+      }
+    }
   }
 
   private async runSWEAgentWithStreaming(task: string, sendMessage: MessageSender): Promise<{ role: string; content: string }[]> {

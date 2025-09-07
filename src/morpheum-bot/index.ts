@@ -194,6 +194,8 @@ if (username && password) {
       await client.stop();
       // Create new client with new token
       client = createMatrixClient(newToken, effectiveHomeserverUrl);
+      // Update the Matrix client on the bot
+      bot.setMatrixClient(client);
       setupClientHandlers(client, bot, tokenManager);
       // Restart the client
       await client.start();
@@ -217,11 +219,11 @@ if (username && password) {
 // Create bot instance with tokenManager if available
 bot = new MorpheumBot(tokenManager);
 
-// Create bot instance with tokenManager if available
-bot = new MorpheumBot(tokenManager);
-
 // Create initial client
 client = createMatrixClient(currentToken!, effectiveHomeserverUrl);
+
+// Set the Matrix client on the bot for project room functionality
+bot.setMatrixClient(client);
 
 // Before we start the client, let's set up a few things.
 
@@ -305,7 +307,7 @@ function setupClientHandlers(matrixClient: MatrixClient, bot: any, tokenManager?
             }
             
             if (task) {
-              await bot.processMessage(task, event.sender, sendMessage);
+              await bot.processMessage(task, event.sender, sendMessage, roomId);
               return;
             }
           }
@@ -315,7 +317,7 @@ function setupClientHandlers(matrixClient: MatrixClient, bot: any, tokenManager?
       }
 
       if (body.startsWith("!")) {
-        await bot.processMessage(body, event.sender, sendMessage);
+        await bot.processMessage(body, event.sender, sendMessage, roomId);
       }
     };
 
