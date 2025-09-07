@@ -13,11 +13,13 @@ tags: ['workflow', 'design', 'documentation']
 4.  Initially, I failed to follow the project's contribution guidelines and just announced the file's creation.
 5.  After being corrected by the user, I read `AGENTS.md` to understand the correct process.
 6.  Created a new task file (`task-085-draft-workflow-md.md`) and this devlog entry to properly document the work.
+7.  Received feedback from the user to allow for more autonomous collaboration between bots, where they can assign tasks to each other directly after user approval of a plan.
+8.  Updated `WORKFLOW.md` to reflect this improved multi-agent workflow.
 
 ### Friction/Success Points
 
 *   **Friction:** My initial failure to read and adhere to `AGENTS.md` caused unnecessary back-and-forth. This was a process error on my part.
-*   **Success:** The `AGENTS.md` file was very clear and provided explicit instructions on how to create task and devlog entries, which made correcting my mistake straightforward. The user's guidance was essential for getting me back on track.
+*   **Success:** The `AGENTS.md` file was very clear and provided explicit instructions on how to create task and devlog entries, which made correcting my mistake straightforward. The user's guidance was essential for getting me back on track. The iterative feedback loop on the `WORKFLOW.md` document proved very effective.
 
 ### Technical Learnings
 

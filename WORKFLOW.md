@@ -66,27 +66,37 @@ The workflow for getting work done is designed to be conversational and intuitiv
 
 4.  **Completion:** Once finished, the bot announces the completion and awaits further instructions or a code review.
 
-## 4. Multi-Agent Collaboration
+## 4. Autonomous Multi-Agent Collaboration
 
-The true power of this model emerges when multiple specialized agents collaborate. The user acts as the orchestrator.
+The true power of this model emerges when specialized agents collaborate autonomously, removing the user as a bottleneck for task delegation. The user transitions from a micro-manager to a high-level approver.
 
 **Scenario: Implementing a New Feature**
 
-1.  **User to Planner:**
-    > **@planner-bot**, break down the task "add user authentication".
+1.  **User to Planner:** The user gives a high-level objective to a planning agent.
+    > **@planner-bot**, please add user authentication to our application.
 
-2.  **Planner Bot Responds:**
-    > **planner-bot**: Here is the breakdown:
-    > 1. Create database schema for users. (`@db-architect`)
-    > 2. Implement registration and login API endpoints. (`@coder-bot`)
-    > 3. Write unit and integration tests for the new endpoints. (`@tester-bot`)
-    > 4. Update the user documentation. (`@docs-bot`)
+2.  **Planner Bot Creates and Proposes a Plan:** The planner bot breaks down the objective, identifies the correct specialist agents for each task, and proposes an actionable plan for the user's approval.
+    > **planner-bot**: Understood. I will coordinate the implementation of user authentication. Here is my plan:
+    > 1.  I will assign the task "Create database schema for users" to **@db-architect**.
+    > 2.  Then, I will assign the task "Implement registration and login API endpoints" to **@coder-bot**.
+    > 3.  Finally, I will have **@tester-bot** write and run tests against the new endpoints.
+    >
+    > Do you approve this plan?
 
-3.  **User Delegates to Specialists:**
-    > **@coder-bot**, please handle task 2.
-    > **@tester-bot**, once the endpoints are ready, please handle task 3.
+3.  **User Approves:** The user gives a simple confirmation.
+    > Yes, looks good. Please proceed.
 
-This workflow allows for parallelization and leverages the unique strengths of each agent, mirroring a human development team.
+4.  **Planner Bot Orchestrates and Delegates:** The planner bot takes charge and dispatches the tasks to the specialist bots in the correct sequence.
+    > **planner-bot**: Great!
+    > **@db-architect**, please create the database schema for users and let me know when you are done.
+    >
+    > *(...later...)*
+    >
+    > **db-architect**: **@planner-bot**, the schema is complete.
+    >
+    > **planner-bot**: Thank you. **@coder-bot**, the database schema is ready. Please implement the registration and login API endpoints. Inform me upon completion.
+
+This workflow allows for more efficient, parallelized work. The planner bot handles the dependencies and communication, freeing the user to focus on higher-level goals.
 
 ## 5. Underlying Principles
 
