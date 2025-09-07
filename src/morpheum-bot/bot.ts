@@ -216,7 +216,7 @@ export class MorpheumBot {
     } else if (body.startsWith("!")) {
       await this.handleInfoCommand(body, sendMessage);
     } else {
-      return await this.handleTask(body, sendMessage);
+      return await this.handleTask(body, sendMessage, roomId);
     }
   }
 
@@ -738,15 +738,115 @@ ${resultSummary}
     }
   }
 
-  private async handleTask(task: string, sendMessage: MessageSender) {
-    const identifier = this.currentLLMProvider === 'copilot' 
-      ? this.llmConfig.copilot.repository 
-      : this.llmConfig[this.currentLLMProvider].model;
+  /**
+   * Apply room-specific configuration if the room has project configuration
+   * Returns the original configuration state to restore later
+   */
+  private async applyRoomSpecificConfig(roomId?: string): Promise<{
+    provider: 'openai' | 'ollama' | 'copilot';
+    repository?: string;
+    client: LLMClient;
+  } | null> {
+    if (!roomId || !this.projectRoomManager) {
+      return null;
+    }
+
+    // Check if this room has project configuration
+    let projectConfig: ProjectRoomConfig | null = null;
     
-    await sendMessage(`🚀 Working on: "${task}" using ${this.currentLLMProvider} (${identifier})...`);
+    // First check our local cache
+    if (this.roomConfigs.has(roomId)) {
+      projectConfig = this.roomConfigs.get(roomId)!;
+    } else {
+      // If not in cache, try to fetch from Matrix room state
+      try {
+        projectConfig = await this.projectRoomManager.getProjectConfig(roomId);
+        if (projectConfig) {
+          this.roomConfigs.set(roomId, projectConfig);
+        }
+      } catch (error) {
+        // Room doesn't have project configuration or we can't access it
+        return null;
+      }
+    }
+
+    if (!projectConfig || projectConfig.llmProvider !== 'copilot') {
+      return null;
+    }
+
+    // Save original configuration
+    const originalConfig = {
+      provider: this.currentLLMProvider,
+      repository: this.llmConfig.copilot.repository,
+      client: this.currentLLMClient
+    };
+
+    // Apply project room configuration
+    try {
+      this.validateApiKey('copilot');
+      
+      // Update configuration for this project
+      this.llmConfig.copilot.repository = projectConfig.repository;
+      this.currentLLMProvider = 'copilot';
+      
+      // Create new LLM client with project repository
+      this.currentLLMClient = new CopilotClient(
+        this.llmConfig.copilot.apiKey!,
+        projectConfig.repository,
+        this.llmConfig.copilot.baseUrl
+      );
+      
+      // Update the SWE agent with the new LLM client
+      this.sweAgent = new SWEAgent(this.currentLLMClient, this.sweAgent.currentJailClient);
+      
+      return originalConfig;
+    } catch (error) {
+      // If we can't switch to copilot, revert to original config
+      console.error('[ProjectRoom] Failed to apply project configuration:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Restore the original configuration after processing a room-specific task
+   */
+  private async restoreOriginalConfig(originalConfig: {
+    provider: 'openai' | 'ollama' | 'copilot';
+    repository?: string;
+    client: LLMClient;
+  }): Promise<void> {
+    try {
+      // Restore original configuration
+      this.currentLLMProvider = originalConfig.provider;
+      this.llmConfig.copilot.repository = originalConfig.repository;
+      this.currentLLMClient = originalConfig.client;
+      
+      // Update the SWE agent with the original LLM client
+      this.sweAgent = new SWEAgent(this.currentLLMClient, this.sweAgent.currentJailClient);
+    } catch (error) {
+      console.error('[ProjectRoom] Failed to restore original configuration:', error);
+    }
+  }
+
+  private async handleTask(task: string, sendMessage: MessageSender, roomId?: string) {
+    // Check for room-specific configuration and apply if present
+    const originalConfig = await this.applyRoomSpecificConfig(roomId);
     
-    // Create a streaming version of the SWE agent run
-    await this.runSWEAgentWithStreaming(task, sendMessage);
+    try {
+      const identifier = this.currentLLMProvider === 'copilot' 
+        ? this.llmConfig.copilot.repository 
+        : this.llmConfig[this.currentLLMProvider].model;
+      
+      await sendMessage(`🚀 Working on: "${task}" using ${this.currentLLMProvider} (${identifier})...`);
+      
+      // Create a streaming version of the SWE agent run
+      await this.runSWEAgentWithStreaming(task, sendMessage);
+    } finally {
+      // Restore original configuration
+      if (originalConfig) {
+        await this.restoreOriginalConfig(originalConfig);
+      }
+    }
   }
 
   private async runSWEAgentWithStreaming(task: string, sendMessage: MessageSender): Promise<{ role: string; content: string }[]> {
