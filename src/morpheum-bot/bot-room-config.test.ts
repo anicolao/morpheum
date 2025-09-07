@@ -185,9 +185,13 @@ describe('MorpheumBot - Room-specific Configuration', () => {
     // Run !llm status in project room
     await bot.processMessage('!llm status', '@user:test.matrix.org', mockSendMessage, projectRoomId);
 
-    // Verify that status includes both global and project room information
+    // Verify that status includes current provider and project room information
     expect(mockSendMessage).toHaveBeenCalledWith(
-      expect.stringContaining('**Global LLM Configuration:**'),
+      expect.stringContaining('Current Provider: copilot (from project room configuration)'),
+      expect.anything()
+    );
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      expect.stringContaining('**Available Providers:**'),
       expect.anything()
     );
     expect(mockSendMessage).toHaveBeenCalledWith(
@@ -213,13 +217,13 @@ describe('MorpheumBot - Room-specific Configuration', () => {
     // Run !llm status in regular room
     await bot.processMessage('!llm status', '@user:test.matrix.org', mockSendMessage, regularRoomId);
 
-    // Verify that status shows global config and regular room status
+    // Verify that status shows current provider and available providers for regular room
     expect(mockSendMessage).toHaveBeenCalledWith(
-      expect.stringContaining('**Global LLM Configuration:**'),
+      expect.stringContaining('Current Provider: ollama (from global configuration)'),
       expect.anything()
     );
     expect(mockSendMessage).toHaveBeenCalledWith(
-      expect.stringContaining('**Room Status:** Regular room (no project-specific configuration)'),
+      expect.stringContaining('**Available Providers:**'),
       expect.anything()
     );
   });

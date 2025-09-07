@@ -304,17 +304,9 @@ For regular tasks, just type your request without a command prefix.`;
     const subcommand = parts[1];
 
     if (subcommand === 'status') {
-      // Build status message starting with global configuration
-      let status = `**Global LLM Configuration:**
-Current Provider: ${this.currentLLMProvider}
-- OpenAI: model=${this.llmConfig.openai.model}, baseUrl=${this.llmConfig.openai.baseUrl}, apiKey=${this.llmConfig.openai.apiKey ? 'configured' : 'not configured'}
-- Ollama: model=${this.llmConfig.ollama.model}, baseUrl=${this.llmConfig.ollama.baseUrl}
-- Copilot: repository=${this.llmConfig.copilot.repository || 'not configured'}, baseUrl=${this.llmConfig.copilot.baseUrl}, apiKey=${this.llmConfig.copilot.apiKey ? 'configured' : 'not configured'}`;
-
-      // Check for room-specific configuration
+      // Check for room-specific configuration first
+      let projectConfig: ProjectRoomConfig | null = null;
       if (roomId && this.projectRoomManager) {
-        let projectConfig: ProjectRoomConfig | null = null;
-        
         // Check cache first
         if (this.roomConfigs.has(roomId)) {
           projectConfig = this.roomConfigs.get(roomId)!;
@@ -329,9 +321,18 @@ Current Provider: ${this.currentLLMProvider}
             // Room doesn't have project configuration - this is normal for non-project rooms
           }
         }
+      }
 
-        if (projectConfig) {
-          status += `\n\n**🏗️ Project Room Configuration:**
+      // Determine current provider and source
+      const currentProvider = projectConfig ? projectConfig.llmProvider : this.currentLLMProvider;
+      const providerSource = projectConfig ? 'project room configuration' : 'global configuration';
+      
+      // Start with current provider prominently displayed
+      let status = `Current Provider: ${currentProvider} (from ${providerSource})`;
+
+      // Add project room configuration section if available (show first)
+      if (projectConfig) {
+        status += `\n\n**🏗️ Project Room Configuration:**
 This room has project-specific settings that override global config for tasks:
 - Repository: ${projectConfig.repository}
 - LLM Provider: ${projectConfig.llmProvider}
@@ -339,10 +340,13 @@ This room has project-specific settings that override global config for tasks:
 - Created at: ${projectConfig.created_at}
 
 *Note: Tasks in this room will automatically use Copilot with repository '${projectConfig.repository}'*`;
-        } else {
-          status += `\n\n**Room Status:** Regular room (no project-specific configuration)`;
-        }
       }
+
+      // Add available providers section
+      status += `\n\n**Available Providers:**
+- OpenAI: model=${this.llmConfig.openai.model}, baseUrl=${this.llmConfig.openai.baseUrl}, apiKey=${this.llmConfig.openai.apiKey ? 'configured' : 'not configured'}
+- Ollama: model=${this.llmConfig.ollama.model}, baseUrl=${this.llmConfig.ollama.baseUrl}
+- Copilot: repository=${this.llmConfig.copilot.repository || 'not configured'}, baseUrl=${this.llmConfig.copilot.baseUrl}, apiKey=${this.llmConfig.copilot.apiKey ? 'configured' : 'not configured'}`;
 
       await sendMarkdownMessage(status, sendMessage);
     } else if (subcommand === 'switch') {
