@@ -10,6 +10,14 @@ This section contains active and archived design proposals for the Morpheum proj
 
 ## Active Proposals
 
+### Project Rooms Feature
+
+- **Status**: Under Review
+- **Type**: Feature Enhancement
+- **Description**: New `!project create` command to create dedicated Matrix rooms for GitHub projects with automatic Copilot integration.
+
+[View Full Proposal](/proposals/project-rooms/) | [GitHub Document](https://github.com/anicolao/morpheum/blob/main/PROJECT_ROOMS.md)
+
 ### Project Tracking and Management Enhancement
 
 - **Status**: Under Review
@@ -59,6 +67,7 @@ All proposals should include:
 | Matrix Architecture | ✅ Complete | v0.1 | Foundation established |
 | AI Agent Framework | 🚀 In Progress | v0.2 | Core capabilities developed |
 | GitHub Pages Site | 🚀 In Progress | v0.2 | This site is part of implementation |
+| Project Rooms Feature | 📋 Under Review | v0.3 | Design document completed |
 | Enhanced GitHub Integration | 📋 Planned | v0.3 | Pending v0.2 completion |
 
 ## Historical Decisions
