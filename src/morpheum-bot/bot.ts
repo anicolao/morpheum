@@ -214,7 +214,7 @@ export class MorpheumBot {
     } else if (body.startsWith("!project")) {
       await this.handleProjectCommand(body, sendMessage, roomId || '', sender);
     } else if (body.startsWith("!")) {
-      await this.handleInfoCommand(body, sendMessage);
+      await this.handleInfoCommand(body, sendMessage, roomId);
     } else {
       return await this.handleTask(body, sendMessage, roomId);
     }
@@ -245,7 +245,7 @@ export class MorpheumBot {
     }
   }
 
-  private async handleInfoCommand(body: string, sendMessage: MessageSender) {
+  private async handleInfoCommand(body: string, sendMessage: MessageSender, roomId?: string) {
     if (body.startsWith("!help")) {
       const message = `Hello! I am the Morpheum Bot. I am still under development.
 
@@ -287,7 +287,7 @@ For regular tasks, just type your request without a command prefix.`;
     } else if (body.startsWith("!token refresh")) {
       await this.handleTokenRefreshCommand(sendMessage);
     } else if (body.startsWith("!llm")) {
-      await this.handleLLMCommand(body, sendMessage);
+      await this.handleLLMCommand(body, sendMessage, roomId);
     } else if (body.startsWith("!openai")) {
       await this.handleDirectOpenAICommand(body, sendMessage);
     } else if (body.startsWith("!ollama")) {
@@ -299,17 +299,52 @@ For regular tasks, just type your request without a command prefix.`;
     }
   }
 
-  private async handleLLMCommand(body: string, sendMessage: MessageSender) {
+  private async handleLLMCommand(body: string, sendMessage: MessageSender, roomId?: string) {
     const parts = body.split(' ');
     const subcommand = parts[1];
 
     if (subcommand === 'status') {
-      const status = `Current LLM Provider: ${this.currentLLMProvider}
-Configuration:
+      // Build status message starting with global configuration
+      let status = `**Global LLM Configuration:**
+Current Provider: ${this.currentLLMProvider}
 - OpenAI: model=${this.llmConfig.openai.model}, baseUrl=${this.llmConfig.openai.baseUrl}, apiKey=${this.llmConfig.openai.apiKey ? 'configured' : 'not configured'}
 - Ollama: model=${this.llmConfig.ollama.model}, baseUrl=${this.llmConfig.ollama.baseUrl}
 - Copilot: repository=${this.llmConfig.copilot.repository || 'not configured'}, baseUrl=${this.llmConfig.copilot.baseUrl}, apiKey=${this.llmConfig.copilot.apiKey ? 'configured' : 'not configured'}`;
-      await sendMessage(status);
+
+      // Check for room-specific configuration
+      if (roomId && this.projectRoomManager) {
+        let projectConfig: ProjectRoomConfig | null = null;
+        
+        // Check cache first
+        if (this.roomConfigs.has(roomId)) {
+          projectConfig = this.roomConfigs.get(roomId)!;
+        } else {
+          // Try to fetch from Matrix room state
+          try {
+            projectConfig = await this.projectRoomManager.getProjectConfig(roomId);
+            if (projectConfig) {
+              this.roomConfigs.set(roomId, projectConfig);
+            }
+          } catch (error) {
+            // Room doesn't have project configuration - this is normal for non-project rooms
+          }
+        }
+
+        if (projectConfig) {
+          status += `\n\n**🏗️ Project Room Configuration:**
+This room has project-specific settings that override global config for tasks:
+- Repository: ${projectConfig.repository}
+- LLM Provider: ${projectConfig.llmProvider}
+- Created by: ${projectConfig.created_by}
+- Created at: ${projectConfig.created_at}
+
+*Note: Tasks in this room will automatically use Copilot with repository '${projectConfig.repository}'*`;
+        } else {
+          status += `\n\n**Room Status:** Regular room (no project-specific configuration)`;
+        }
+      }
+
+      await sendMarkdownMessage(status, sendMessage);
     } else if (subcommand === 'switch') {
       const provider = parts[2] as 'openai' | 'ollama' | 'copilot';
       if (!provider || !['openai', 'ollama', 'copilot'].includes(provider)) {

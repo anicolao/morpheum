@@ -189,10 +189,12 @@ describe('MorpheumBot', () => {
       await bot.processMessage('!llm status', 'user', mockSendMessage);
       
       expect(mockSendMessage).toHaveBeenCalledWith(
-        expect.stringContaining('Current LLM Provider: openai')
+        expect.stringContaining('Current Provider: openai'),
+        expect.stringContaining('<p>Formatted markdown</p>')
       );
       expect(mockSendMessage).toHaveBeenCalledWith(
-        expect.stringContaining('model=gpt-4-test')
+        expect.stringContaining('model=gpt-4-test'),
+        expect.stringContaining('<p>Formatted markdown</p>')
       );
     });
   });

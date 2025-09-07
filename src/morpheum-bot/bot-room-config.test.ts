@@ -168,4 +168,59 @@ describe('MorpheumBot - Room-specific Configuration', () => {
       expect.stringContaining('morpheum-local')
     );
   });
+
+  it('should show project room configuration in !llm status when in project room', async () => {
+    const projectRoomId = '!projectroom:test.matrix.org';
+    const projectConfig: ProjectRoomConfig = {
+      repository: 'facebook/react',
+      llmProvider: 'copilot',
+      created_by: '@alice:test.matrix.org',
+      created_at: '2025-01-12T10:00:00.000Z',
+      version: '1.0'
+    };
+
+    // Mock getRoomStateEvent to return project configuration
+    (mockMatrixClient.getRoomStateEvent as any).mockResolvedValue(projectConfig);
+
+    // Run !llm status in project room
+    await bot.processMessage('!llm status', '@user:test.matrix.org', mockSendMessage, projectRoomId);
+
+    // Verify that status includes both global and project room information
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      expect.stringContaining('**Global LLM Configuration:**'),
+      expect.anything()
+    );
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      expect.stringContaining('**🏗️ Project Room Configuration:**'),
+      expect.anything()
+    );
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      expect.stringContaining('Repository: facebook/react'),
+      expect.anything()
+    );
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      expect.stringContaining('Created by: @alice:test.matrix.org'),
+      expect.anything()
+    );
+  });
+
+  it('should show regular room status in !llm status when in non-project room', async () => {
+    const regularRoomId = '!regularroom:test.matrix.org';
+
+    // Mock getRoomStateEvent to return error (no project configuration)
+    (mockMatrixClient.getRoomStateEvent as any).mockRejectedValue(new Error('Not found'));
+
+    // Run !llm status in regular room
+    await bot.processMessage('!llm status', '@user:test.matrix.org', mockSendMessage, regularRoomId);
+
+    // Verify that status shows global config and regular room status
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      expect.stringContaining('**Global LLM Configuration:**'),
+      expect.anything()
+    );
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      expect.stringContaining('**Room Status:** Regular room (no project-specific configuration)'),
+      expect.anything()
+    );
+  });
 });

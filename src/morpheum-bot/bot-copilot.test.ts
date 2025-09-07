@@ -60,7 +60,8 @@ describe('MorpheumBot Copilot Integration', () => {
     await bot.processMessage('!llm status', 'test-user', mockSendMessage);
     
     expect(mockSendMessage).toHaveBeenCalledWith(
-      expect.stringContaining('Copilot: repository=test-owner/test-repo')
+      expect.stringContaining('Copilot: repository=test-owner/test-repo'),
+      expect.anything()
     );
   });
 
