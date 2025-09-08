@@ -1,108 +1,198 @@
-# User Workflow for Collaborative Development
+# Morpheum Workflow: Human-Bot Collaboration in Matrix Rooms
 
-## 1. Introduction
+## Overview
 
-This document outlines the intended user workflow for interacting with the Morpheum development environment. It is guided by the principles in `VISION.md`, focusing on creating a seamless, collaborative space where humans and AI agents work together on software projects within a Matrix chat room.
+This document outlines the intended workflow for users participating in Morpheum project rooms where humans and AI bots collaborate on software development tasks. The focus is on the user experience of working with multiple bots that have different capabilities, roles, and funding models.
 
-The primary goal is to define the user experience *before* diving into a specific implementation. We will first describe the "happy path" for a user who joins a project room to get work done. Workflows for creating rooms, inviting bots, and configuring bots will be addressed separately.
+## Core Concepts
 
-## 2. The Project Room: A User's Perspective
+### Room as Organizing Container
+- A Matrix room serves as the central collaboration space for a project.
+- The room is associated with a specific GitHub repository (configured via `PROJECT_ROOMS.md`).
+- Multiple bots can be present in the room, each contributing different AI capabilities.
+- All bots in the room are aware of the project context and repository.
 
-The central hub for any project is a **Project Room** in Matrix. A user's journey begins when they join one of these rooms.
+### Bot Ownership and Funding Model
+- Each bot is owned and funded by a specific person.
+- Bot owners maintain control over their bot's configuration (models, costs, capabilities).
+- Bot owners contribute their bot's compute resources and AI capabilities to the project.
+- Bot owners cannot be forced to use expensive models by other room participants.
 
-### 2.1. Entering a Room and Gaining Context
+### Bot Roles and Identities
+- Each bot can fulfill multiple roles through different system prompts.
+- Each role appears as a separate user identity in the chat room.
+- Roles are defined and configured by the bot owner.
+- Examples of roles: code reviewer, documentation writer, test generator, project manager.
 
-When a user enters a project room, the environment provides immediate context:
+## User Workflow: Participating in a Project Room
 
-*   **Room Name & Topic:** The room's name (e.g., `morpheum-dev`) and topic clearly state the associated GitHub repository (e.g., `GitHub Project: morpheum/morpheum`).
-*   **Welcome Message:** A bot greets the user, confirming the project context and listing the available AI agents and their specializations.
+### 1. Joining a Project Room
 
-### 2.2. Understanding the Environment with `!llm status`
+**User Journey:**
+1. A user receives an invitation to a project room or discovers an existing one.
+2. The user joins the room and sees:
+    - The room topic indicating the associated GitHub repository.
+    - A welcome message listing the active bots and their available roles.
+3. The user can request the current status to understand the environment.
 
-At any time, a user can type `!llm status` to understand the current configuration of the room. This command clarifies which bot is active and what underlying Large Language Model (LLM) it is using.
+**Example Room Entry Experience:**
+```
+Welcome to the MyProject room!
+📂 Repository: user/myproject
+🤖 Available Bots:
+  - Alice's Bot: @reviewer, @coder, @tester
+  - Bob's Bot: @docs-writer, @architect
+  - Carol's Bot: @pm, @qa
+
+Type !help to see available commands.
+Type !status to see detailed bot capabilities.
+```
+
+### 2. Understanding the Environment with `!status`
+
+At any time, a user can type `!status` to understand the current configuration of the room. This command clarifies which bot is active and what underlying Large Language Model (LLM) it is using.
 
 **In a Project Room, the output is:**
-
 ```
 Active Bot: @coder-bot
 LLM Provider: openai-gpt4 (for role: 'developer')
 Current Repository: morpheum/morpheum
 
 Available Bots in Room:
-- @coder-bot: A bot for writing and refactoring code.
+- @coder-bot (Owner: @alice:matrix.org): A bot for writing and refactoring code.
   - Roles: 'developer' (uses openai-gpt4), 'reviewer' (uses claude-3-sonnet)
-- @tester-bot: A bot for generating and running tests.
+- @tester-bot (Owner: @alice:matrix.org): A bot for generating and running tests.
   - Roles: 'qa-engineer' (uses gemini-1.5-pro)
-- @docs-bot: A bot for writing documentation.
+- @docs-bot (Owner: @bob:matrix.org): A bot for writing documentation.
   - Roles: 'tech-writer' (uses ollama/mistral-large)
 ```
 
-**Key Terminology:**
-
-*   **Bot:** An agent in the room that provides tools and capabilities. Each bot is funded and controlled by its owner.
-*   **LLM Provider:** The underlying language model (e.g., OpenAI, Ollama) that provides the reasoning power for a bot.
-*   The configuration is aggregated from the **bots** present in the room. Each bot owner decides which LLM providers their bot can use for specific roles.
-
 **In a non-project room (e.g., a general lobby), the output is:**
-
 ```
 Non-project room. Switch to a project to do development work.
 ```
 
-This enforces the principle that all development work must happen within the context of a project room, which is always tied to a repository.
+### 3. Requesting Work from Bots
 
-## 3. The Core Interaction Loop
+**Direct Bot Interaction:**
+Users can address specific bot roles directly to request work:
+```
+User: @reviewer please review the authentication module in src/auth/
 
-The workflow for getting work done is designed to be conversational and intuitive.
+User: @coder can you implement the user registration endpoint based on the spec in docs/api.md?
+```
 
-1.  **Assigning a Task:** The user assigns a task by addressing a specific bot by its name. Each bot is a distinct user in the room.
+**Broadcast Requests:**
+Users can make general requests that any appropriate bot can respond to:
+```
+User: Can someone help me debug this test failure?
 
-    > **@coder-bot**, please implement the `!llm status` command as described in `WORKFLOW.md`.
+User: Who can review my pull request #123?
+```
 
-2.  **Bot Acknowledges and Executes:** The bot acknowledges the request and begins work. It has access to the room's repository and can use its configured tools (e.g., file system access, shell commands).
+### 4. Bot-to-Bot Collaboration
 
-    > **coder-bot**: Understood. I will now implement the `!llm status` command. I'll start by reading the relevant files to understand the current implementation.
+#### Automatic Coordination
+Bots can see each other's public messages and coordinate simple workflows:
+```
+@coder: I've implemented the user registration endpoint. @tester, can you generate tests for this?
 
-3.  **Progress Updates:** The bot provides clear, concise updates on its progress.
+@tester: Tests generated! @reviewer, the code and tests are ready for review.
+```
 
-4.  **Completion:** Once finished, the bot announces the completion and awaits further instructions or a code review.
+#### Planner-Led Delegation
+For more complex tasks, a user can engage a planner bot which then orchestrates other bots, subject to user approval. This makes the user a high-level approver rather than a micro-manager.
 
-## 4. Autonomous Multi-Agent Collaboration
-
-The true power of this model emerges when specialized agents collaborate autonomously, removing the user as a bottleneck for task delegation. The user transitions from a micro-manager to a high-level approver.
-
-**Scenario: Implementing a New Feature**
-
-1.  **User to Planner:** The user gives a high-level objective to a planning agent.
+1.  **User to Planner:** The user gives a high-level objective.
     > **@planner-bot**, please add user authentication to our application.
 
-2.  **Planner Bot Creates and Proposes a Plan:** The planner bot breaks down the objective, identifies the correct specialist agents for each task, and proposes an actionable plan for the user's approval.
-    > **planner-bot**: Understood. I will coordinate the implementation of user authentication. Here is my plan:
-    > 1.  I will assign the task "Create database schema for users" to **@db-architect**.
-    > 2.  Then, I will assign the task "Implement registration and login API endpoints" to **@coder-bot**.
-    > 3.  Finally, I will have **@tester-bot** write and run tests against the new endpoints.
+2.  **Planner Bot Creates and Proposes a Plan:** The planner proposes an actionable plan for the user's approval.
+    > **planner-bot**: Understood. Here is my plan:
+    > 1.  I will assign the task "Create database schema" to **@db-architect**.
+    > 2.  Then, I will assign "Implement API endpoints" to **@coder-bot**.
+    > 3.  Finally, I will have **@tester-bot** write and run tests.
     >
     > Do you approve this plan?
 
-3.  **User Approves:** The user gives a simple confirmation.
+3.  **User Approves:**
     > Yes, looks good. Please proceed.
 
-4.  **Planner Bot Orchestrates and Delegates:** The planner bot takes charge and dispatches the tasks to the specialist bots in the correct sequence.
-    > **planner-bot**: Great!
-    > **@db-architect**, please create the database schema for users and let me know when you are done.
-    >
-    > *(...later...)*
-    >
-    > **db-architect**: **@planner-bot**, the schema is complete.
-    >
-    > **planner-bot**: Thank you. **@coder-bot**, the database schema is ready. Please implement the registration and login API endpoints. Inform me upon completion.
+4.  **Planner Bot Orchestrates and Delegates:**
+    > **planner-bot**: Great! **@db-architect**, please create the database schema for users and let me know when you are done.
 
-This workflow allows for more efficient, parallelized work. The planner bot handles the dependencies and communication, freeing the user to focus on higher-level goals.
+### 5. Understanding Work Status and Progress
 
-## 5. Underlying Principles
+**Status Commands:**
+- `!tasks` - List open tasks and their assignments.
+- `!progress` - Show recent progress and completed work.
 
-This workflow is built on a few core principles derived from the project vision and user feedback:
+**Example Status Display:**
+```
+User: !tasks
+Bot Response:
+📊 **Active Work:**
+- @coder: Implementing user authentication (PR #125)
+- @reviewer: Reviewing database optimization (PR #124)
+- @docs-writer: Updating API documentation
 
-*   **Room-Centric Context:** All development work is scoped to a project room. The repository is an attribute of the room, not a parameter passed to a bot. This simplifies the command structure and ensures context is never ambiguous.
-*   **Bot Ownership and Control:** Each user-provided bot is a distinct entity. The bot's owner is responsible for its funding and configuration, including which LLM providers it is authorized to use. By inviting their bot to a room, an owner contributes its capabilities to the project without ceding control over its operational costs.
-*   **Role-Based Specialization:** A single bot can embody multiple "workers" or "roles" (e.g., a developer, a reviewer). Each role can be configured with a different system prompt and underlying LLM provider, allowing for fine-grained control over a bot's behavior and cost. These roles appear as distinct entities, making the division of labor clear.
+**Pending Tasks:**
+- Test coverage for payment module
+- Security audit of authentication flow
+```
+
+### 6. Managing Work Priorities and Direction
+
+Users can provide high-level direction and priorities to the bots:
+```
+User: @pm the authentication feature is our top priority. Please coordinate with the team to get this done first.
+
+User: @coder pause the optimization work, we have a critical bug that needs immediate attention.
+```
+
+When bots need human input, they will escalate:
+```
+@architect: I need a decision on the database choice for the new feature. PostgreSQL vs MongoDB pros/cons attached.
+```
+
+## Communication Patterns
+
+### Bot Identification and Addressing
+- Each bot role has a unique `@username` that users can address directly.
+- Users can use `@all` to address all bots.
+- Users can use `@role-type` (e.g., `@reviewers`) to address all bots of a certain type.
+
+### Work Request Formats
+- **Task Assignment:** "@role please [specific task]"
+- **Question:** "@role can you help me with [problem]?"
+- **Review Request:** "@role please review [item/PR/code]"
+
+## Bot Capability Framework
+
+### Categories of Bot Capabilities
+1.  **Code Generation** - Writing new code, implementing features
+2.  **Code Review** - Analyzing code quality, security, best practices
+3.  **Testing** - Generating tests, running test suites, validation
+4.  **Documentation** - Writing docs, READMEs, API documentation
+5.  **Project Management** - Task breakdown, planning, coordination
+6.  **Architecture** - System design, technical decisions, patterns
+7.  **Quality Assurance** - Testing strategy, quality gates, validation
+
+## Future Considerations
+
+### Bot Marketplace and Discovery
+- Users could discover and invite additional bots to rooms.
+- Bot owners could advertise their bot capabilities.
+- Quality ratings and feedback for bot performance.
+
+### Advanced Coordination
+- Bots could form temporary teams for complex tasks.
+- Automatic work distribution based on bot capabilities.
+- Learning from collaboration patterns to improve coordination.
+
+### Economic Models
+- Token-based payment systems for expensive AI usage.
+- Revenue sharing for bot contributions.
+- Incentives for contributing specialized bot capabilities.
+
+---
+This workflow prioritizes user experience and natural collaboration while respecting the constraints of bot ownership and funding models. The focus is on making it easy for users to get work done while maintaining clear boundaries around bot control and capabilities.
