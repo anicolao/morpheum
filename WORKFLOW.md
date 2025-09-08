@@ -19,28 +19,29 @@ When a user enters a project room, the environment provides immediate context:
 
 ### 2.2. Understanding the Environment with `!llm status`
 
-At any time, a user can type `!llm status` to understand the current configuration of the room. This command is crucial for orienting the user.
+At any time, a user can type `!llm status` to understand the current configuration of the room. This command clarifies which bot is active and what underlying Large Language Model (LLM) it is using.
 
 **In a Project Room, the output is:**
 
 ```
-Current Provider: @coder-bot (using openai-gpt4)
+Active Bot: @coder-bot
+LLM Provider: openai-gpt4 (for role: 'developer')
 Current Repository: morpheum/morpheum
 
-Available Providers:
+Available Bots in Room:
 - @coder-bot: A bot for writing and refactoring code.
-  - Roles: 'developer' (openai-gpt4), 'reviewer' (claude-3-sonnet)
+  - Roles: 'developer' (uses openai-gpt4), 'reviewer' (uses claude-3-sonnet)
 - @tester-bot: A bot for generating and running tests.
-  - Roles: 'qa-engineer' (gemini-1.5-pro)
+  - Roles: 'qa-engineer' (uses gemini-1.5-pro)
 - @docs-bot: A bot for writing documentation.
-  - Roles: 'tech-writer' (ollama/mistral-large)
+  - Roles: 'tech-writer' (uses ollama/mistral-large)
 ```
 
-**Key Changes from Previous Design:**
+**Key Terminology:**
 
-*   The focus is on the **current active provider** and the **room's repository**.
-*   The concept of "Global Configuration" is removed. Configuration is aggregated from the bots present in the room.
-*   "Available Providers" lists the bots and the roles/models they offer, reflecting that each bot owner controls their own configuration.
+*   **Bot:** An agent in the room that provides tools and capabilities. Each bot is funded and controlled by its owner.
+*   **LLM Provider:** The underlying language model (e.g., OpenAI, Ollama) that provides the reasoning power for a bot.
+*   The configuration is aggregated from the **bots** present in the room. Each bot owner decides which LLM providers their bot can use for specific roles.
 
 **In a non-project room (e.g., a general lobby), the output is:**
 
@@ -103,5 +104,5 @@ This workflow allows for more efficient, parallelized work. The planner bot hand
 This workflow is built on a few core principles derived from the project vision and user feedback:
 
 *   **Room-Centric Context:** All development work is scoped to a project room. The repository is an attribute of the room, not a parameter passed to a bot. This simplifies the command structure and ensures context is never ambiguous.
-*   **Provider Ownership and Control:** Each bot owner configures their own bot's available LLMs and roles. By inviting their bot to a room, they are *contributing* its capabilities to the project. The room aggregates these capabilities but cannot force a bot to use a model (and associated cost) that its owner has not authorized. This directly addresses the need for budget control.
-*   **Role-Based Specialization:** A single bot can embody multiple "workers" or "roles" (e.g., a developer, a reviewer). Each role can be configured with a different model or system prompt, allowing for fine-grained control over a bot's behavior and cost. These roles appear as distinct entities, making the division of labor clear to the user.
+*   **Bot Ownership and Control:** Each user-provided bot is a distinct entity. The bot's owner is responsible for its funding and configuration, including which LLM providers it is authorized to use. By inviting their bot to a room, an owner contributes its capabilities to the project without ceding control over its operational costs.
+*   **Role-Based Specialization:** A single bot can embody multiple "workers" or "roles" (e.g., a developer, a reviewer). Each role can be configured with a different system prompt and underlying LLM provider, allowing for fine-grained control over a bot's behavior and cost. These roles appear as distinct entities, making the division of labor clear.

@@ -15,6 +15,7 @@ tags: ['workflow', 'design', 'documentation']
 6.  Created a new task file (`task-085-draft-workflow-md.md`) and this devlog entry to properly document the work.
 7.  Received feedback from the user to allow for more autonomous collaboration between bots, where they can assign tasks to each other directly after user approval of a plan.
 8.  Updated `WORKFLOW.md` to reflect this improved multi-agent workflow.
+9.  Received final clarifying feedback on the distinction between a "bot" (the agentic entity in the room) and an "LLM provider" (the underlying model). Updated the terminology in `WORKFLOW.md` to make this distinction clear.
 
 ### Friction/Success Points
 
