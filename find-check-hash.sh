@@ -59,23 +59,56 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
     exit 1
 fi
 
+# Check if a bisect is already in progress
+if git rev-parse --verify BISECT_HEAD >/dev/null 2>&1; then
+    echo "❌ A git bisect is already in progress. Please finish it first with:"
+    echo "   git bisect reset"
+    exit 1
+fi
+
 # Use git bisect to find the regression point
 git bisect reset 2>/dev/null || true
 git bisect start
 git bisect bad
 
-# Find the oldest commit that doesn't have check.sh to use as good commit
-ALL_COMMITS=$(git rev-list HEAD)
-GOOD_COMMIT=""
-
-for commit in $(echo "$ALL_COMMITS" | tac); do
-    # Use git show to check if check.sh exists without checking out
-    if ! git show "$commit:check.sh" >/dev/null 2>&1; then
-        GOOD_COMMIT="$commit"
-        echo "✅ Found good commit (check.sh doesn't exist): $GOOD_COMMIT"
-        break
+# Check for 'commit-known-good' tag first
+if git rev-parse --verify commit-known-good >/dev/null 2>&1; then
+    GOOD_COMMIT=$(git rev-parse commit-known-good)
+    echo "✅ Using 'commit-known-good' tag: $GOOD_COMMIT"
+else
+    # Find when check.sh was first introduced using git log
+    FIRST_CHECK_COMMIT=$(git log --oneline --follow --reverse -- check.sh 2>/dev/null | head -1 | cut -d' ' -f1)
+    
+    if [ -n "$FIRST_CHECK_COMMIT" ]; then
+        # Use the commit before check.sh was introduced as good
+        GOOD_COMMIT=$(git rev-parse "$FIRST_CHECK_COMMIT~1" 2>/dev/null || echo "")
+        if [ -n "$GOOD_COMMIT" ]; then
+            echo "✅ Found good commit (before check.sh was introduced): $GOOD_COMMIT"
+        else
+            echo "⚠️ check.sh was introduced in first commit, testing it directly"
+            GOOD_COMMIT="$FIRST_CHECK_COMMIT"
+        fi
+    else
+        echo "❌ Could not find when check.sh was introduced"
+        GOOD_COMMIT=""
     fi
-done
+fi
+
+# If we still don't have a good commit, fall back to the old method
+if [ -z "$GOOD_COMMIT" ]; then
+    # Find the oldest commit that doesn't have check.sh to use as good commit
+    ALL_COMMITS=$(git rev-list HEAD)
+    GOOD_COMMIT=""
+
+    for commit in $(echo "$ALL_COMMITS" | tac); do
+        # Use git show to check if check.sh exists without checking out
+        if ! git show "$commit:check.sh" >/dev/null 2>&1; then
+            GOOD_COMMIT="$commit"
+            echo "✅ Found good commit (check.sh doesn't exist): $GOOD_COMMIT"
+            break
+        fi
+    done
+fi
 
 if [ -z "$GOOD_COMMIT" ]; then
     # If all commits have check.sh, test the oldest one to see if it passes
