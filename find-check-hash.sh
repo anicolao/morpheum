@@ -59,65 +59,7 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
     exit 1
 fi
 
-# Check how many commits we have
-COMMIT_COUNT=$(git rev-list --count HEAD)
-echo "📊 Found $COMMIT_COUNT commits in history"
-
-# For simple cases with few commits, we can handle them directly
-if [ "$COMMIT_COUNT" -le 4 ]; then
-    echo "🔍 Testing each commit individually due to small history..."
-    
-    ALL_COMMITS=$(git rev-list HEAD)
-    FIRST_BAD=""
-    
-    # Test each commit from oldest to newest
-    for commit in $(echo "$ALL_COMMITS" | tac); do
-        echo "📅 Testing commit: $(git log --oneline -1 $commit)"
-        
-        # Create a temporary branch to test this commit
-        git checkout "$commit" 2>/dev/null || continue
-        
-        # If check.sh doesn't exist, this is before the feature
-        if ! check_script_exists; then
-            echo "✅ check.sh doesn't exist in this commit (before feature)"
-            continue
-        fi
-        
-        # Install dependencies if needed
-        if [ -f "package.json" ] && [ ! -d "node_modules" ]; then
-            echo "📦 Installing dependencies for testing..."
-            npm install --silent 2>/dev/null || true
-        fi
-        
-        # Test if check.sh works
-        if ! ./check.sh >/dev/null 2>&1; then
-            FIRST_BAD="$commit"
-            echo "❌ Found first failing commit: $commit"
-            break
-        else
-            echo "✅ check.sh passes in this commit"
-        fi
-    done
-    
-    # Return to original branch
-    git checkout copilot/add-bisect-script-for-check 2>/dev/null || git checkout HEAD 2>/dev/null || true
-    
-    if [ -n "$FIRST_BAD" ]; then
-        echo ""
-        echo "🎯 RESULT: First failing commit found!"
-        echo "📋 Commit hash: $FIRST_BAD"
-        echo "📝 Commit details:"
-        git log --oneline -1 "$FIRST_BAD"
-        echo ""
-        echo "$FIRST_BAD"
-        exit 0
-    else
-        echo "❌ No failing commit found - all commits with check.sh seem to pass"
-        exit 1
-    fi
-fi
-
-# For larger histories, use standard git bisect
+# Use git bisect to find the regression point
 git bisect reset 2>/dev/null || true
 git bisect start
 git bisect bad
