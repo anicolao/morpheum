@@ -63,86 +63,87 @@ fi
 COMMIT_COUNT=$(git rev-list --count HEAD)
 echo "📊 Found $COMMIT_COUNT commits in history"
 
-# If we only have one commit, this is where check.sh was introduced
-if [ "$COMMIT_COUNT" -eq 1 ]; then
-    CURRENT_COMMIT=$(git rev-parse HEAD)
-    echo "ℹ️ Only one commit in history."
+# For simple cases with few commits, we can handle them directly
+if [ "$COMMIT_COUNT" -le 4 ]; then
+    echo "🔍 Testing each commit individually due to small history..."
     
-    if check_script_exists; then
-        if ./check.sh >/dev/null 2>&1; then
-            echo "✅ check.sh works in the only commit. No regression found."
-            exit 0
-        else
-            echo "❌ check.sh fails in the only commit where it exists."
-            echo ""
-            echo "🎯 RESULT: First failing commit found!"
-            echo "📋 Commit hash: $CURRENT_COMMIT"
-            echo "📝 Commit details:"
-            git log --oneline -1 "$CURRENT_COMMIT"
-            echo ""
-            echo "$CURRENT_COMMIT"
-            exit 0
+    ALL_COMMITS=$(git rev-list HEAD)
+    FIRST_BAD=""
+    
+    # Test each commit from oldest to newest
+    for commit in $(echo "$ALL_COMMITS" | tac); do
+        echo "📅 Testing commit: $(git log --oneline -1 $commit)"
+        
+        # Create a temporary branch to test this commit
+        git checkout "$commit" 2>/dev/null || continue
+        
+        # If check.sh doesn't exist, this is before the feature
+        if ! check_script_exists; then
+            echo "✅ check.sh doesn't exist in this commit (before feature)"
+            continue
         fi
+        
+        # Install dependencies if needed
+        if [ -f "package.json" ] && [ ! -d "node_modules" ]; then
+            echo "📦 Installing dependencies for testing..."
+            npm install --silent 2>/dev/null || true
+        fi
+        
+        # Test if check.sh works
+        if ! ./check.sh >/dev/null 2>&1; then
+            FIRST_BAD="$commit"
+            echo "❌ Found first failing commit: $commit"
+            break
+        else
+            echo "✅ check.sh passes in this commit"
+        fi
+    done
+    
+    # Return to original branch
+    git checkout copilot/add-bisect-script-for-check 2>/dev/null || git checkout HEAD 2>/dev/null || true
+    
+    if [ -n "$FIRST_BAD" ]; then
+        echo ""
+        echo "🎯 RESULT: First failing commit found!"
+        echo "📋 Commit hash: $FIRST_BAD"
+        echo "📝 Commit details:"
+        git log --oneline -1 "$FIRST_BAD"
+        echo ""
+        echo "$FIRST_BAD"
+        exit 0
     else
-        echo "❌ check.sh doesn't exist in the only commit. Nothing to bisect."
+        echo "❌ No failing commit found - all commits with check.sh seem to pass"
         exit 1
     fi
 fi
 
-# Start bisect for multi-commit scenarios
-git bisect reset 2>/dev/null || true  # Reset any previous bisect session
+# For larger histories, use standard git bisect
+git bisect reset 2>/dev/null || true
 git bisect start
-
-# Set the current commit as bad (since check.sh fails)
-echo "🔴 Marking current commit as bad (check.sh fails)..."
 git bisect bad
 
-# Find a good commit by checking git history
-echo "🔍 Looking for a good commit to start bisect..."
-
+# Find the oldest commit that doesn't have check.sh
 ALL_COMMITS=$(git rev-list HEAD)
 GOOD_COMMIT=""
 
-# Test commits starting from oldest
 for commit in $(echo "$ALL_COMMITS" | tac); do
-    echo "📅 Trying commit: $(git log --oneline -1 $commit)"
-    git checkout "$commit" 2>/dev/null || continue
-    
-    # If check.sh doesn't exist, consider this "good" (before the feature)
-    if ! check_script_exists; then
+    # Use git show to check if check.sh exists without checking out
+    if ! git show "$commit:check.sh" >/dev/null 2>&1; then
         GOOD_COMMIT="$commit"
         echo "✅ Found good commit (check.sh doesn't exist): $GOOD_COMMIT"
         break
     fi
-    
-    # If check.sh exists and works, this is good
-    # Install dependencies if needed
-    if [ -f "package.json" ] && [ ! -d "node_modules" ]; then
-        echo "📦 Installing dependencies for testing..."
-        npm install --silent 2>/dev/null || true
-    fi
-    
-    if ./check.sh >/dev/null 2>&1; then
-        GOOD_COMMIT="$commit"
-        echo "✅ Found good commit (check.sh passes): $GOOD_COMMIT"
-        break
-    fi
 done
 
-# If no good commit found, use the oldest commit as baseline
 if [ -z "$GOOD_COMMIT" ]; then
+    # If all commits have check.sh, use the oldest one and hope it works
     GOOD_COMMIT=$(echo "$ALL_COMMITS" | tail -1)
-    echo "⚠️ No clearly good commit found, using oldest commit: $GOOD_COMMIT"
+    echo "⚠️ All commits have check.sh, using oldest: $GOOD_COMMIT"
 fi
 
-# Go back to HEAD and set up the bisect
-git checkout HEAD
-git bisect bad
 git bisect good "$GOOD_COMMIT"
 
 echo "🔄 Running git bisect with automated testing..."
-
-# Run the bisect with our test script
 git bisect run "$0" --test
 
 # Get the result
@@ -159,12 +160,6 @@ if [ -n "$FIRST_BAD_COMMIT" ]; then
     echo "📝 Commit details:"
     git log --oneline -1 "$FIRST_BAD_COMMIT"
     echo ""
-    echo "🔍 To investigate further:"
-    echo "   git show $FIRST_BAD_COMMIT"
-    echo "   git checkout $FIRST_BAD_COMMIT"
-    echo ""
-    
-    # Output just the hash as requested
     echo "$FIRST_BAD_COMMIT"
 else
     echo "❌ Could not determine the first failing commit"
