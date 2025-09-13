@@ -8,7 +8,7 @@ This document outlines the intended workflow for users participating in Morpheum
 
 ### Room as Organizing Container
 - A Matrix room serves as the central collaboration space for a project
-- The room is associated with a specific GitHub repository (configured via PROJECT_ROOMS.md)
+- The room is associated with a specific GitHub repository (configured via [PROJECT_ROOMS.md](PROJECT_ROOMS.md))
 - Multiple bots can be present in the room, each contributing different AI capabilities
 - All bots in the room are aware of the project context and repository
 
@@ -91,15 +91,15 @@ User: @docs-writer please update the README with the new installation steps
 User: @pm break down the user management feature into tasks
 ```
 
-**Broadcast Requests:**
-Users can make general requests that any appropriate bot can respond to:
+**Project Manager Coordination:**
+When users need help but aren't sure which bot is appropriate, they can ask the project manager to find the right bot:
 
 ```
-User: Can someone help me debug this test failure?
+User: @pm I need help debugging this test failure. Can you find someone appropriate?
 
-User: I need help optimizing the database queries in the user service
+User: @pm The database queries in the user service need optimization. Who can help with this?
 
-User: Who can review my pull request #123?
+User: @pm My pull request #123 is ready for review. Can you assign a reviewer?
 ```
 
 ### 4. Bot-to-Bot Collaboration
@@ -160,7 +160,7 @@ Users can provide direction and priorities to the bots:
 ```
 User: @pm the authentication feature is our top priority. Please coordinate with the team to get this done first.
 
-User: @all we're preparing for a demo next week. Focus on user-facing features and documentation.
+User: @pm we're preparing for a demo next week. Please coordinate the team to focus on user-facing features and documentation.
 
 User: @coder pause the optimization work, we have a critical bug in the payment system that needs immediate attention.
 ```
@@ -180,7 +180,6 @@ When bots need human input or decisions:
 
 ### Bot Identification and Addressing
 - Each bot role has a unique @username that users can address directly
-- Users can use @all to address all bots
 - Users can use @role-type (e.g., @reviewers) to address all bots of a certain type
 
 ### Work Request Formats
