@@ -56,6 +56,7 @@ export class MorpheumBot {
   private tokenManager?: TokenManager;
   private matrixClient?: MatrixClient;
   private projectRoomManager?: ProjectRoomManager;
+  private debugMode: boolean;
 
   private currentLLMClient: LLMClient;
   private currentLLMProvider: 'openai' | 'ollama' | 'copilot';
@@ -68,8 +69,9 @@ export class MorpheumBot {
   // Per-room configurations for project rooms
   private roomConfigs: Map<string, ProjectRoomConfig> = new Map();
 
-  constructor(tokenManager?: TokenManager) {
+  constructor(tokenManager?: TokenManager, debugMode: boolean = false) {
     this.tokenManager = tokenManager;
+    this.debugMode = debugMode;
     
     // Initialize LLM configurations from environment variables
     const openaiConfig: { apiKey?: string; model: string; baseUrl: string } = {
@@ -208,6 +210,12 @@ export class MorpheumBot {
     sendMessage: MessageSender,
     roomId?: string,
   ): Promise<any> {
+    // Debug logging: log all received commands if debug mode is enabled
+    if (this.debugMode) {
+      const timestamp = new Date().toISOString();
+      console.log(`[DEBUG] ${timestamp} - Received command from ${sender} in room ${roomId || 'unknown'}: "${body}"`);
+    }
+
     if (body.startsWith("!create")) {
       const port = body.split(" ")[1] || "10001";
       return await this.handleCreateCommand(sendMessage, port);

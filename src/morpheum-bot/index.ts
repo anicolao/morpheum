@@ -16,6 +16,7 @@ import { normalizeDashes } from "./dash-normalizer";
 interface ParsedArgs {
   register?: string;
   help?: boolean;
+  debug?: boolean;
 }
 
 function showHelp(): void {
@@ -26,11 +27,13 @@ function showHelp(): void {
   console.log("");
   console.log("OPTIONS:");
   console.log("  --register <server-url>    Register a new user account on the specified Matrix server");
+  console.log("  --debug                    Enable debug logging of all received commands");
   console.log("  --help, -h                 Show this help message and exit");
   console.log("");
   console.log("EXAMPLES:");
   console.log("  bun src/morpheum-bot/index.ts                                 # Start bot with existing credentials");
   console.log("  bun src/morpheum-bot/index.ts --register matrix.morpheum.dev  # Register new user and start bot");
+  console.log("  bun src/morpheum-bot/index.ts --debug                         # Start bot with debug logging enabled");
   console.log("  bun src/morpheum-bot/index.ts --help                          # Show this help message");
   console.log("");
   console.log("ENVIRONMENT VARIABLES:");
@@ -51,6 +54,8 @@ function parseArgs(): ParsedArgs {
   for (let i = 0; i < normalizedArgs.length; i++) {
     if (normalizedArgs[i] === '--help' || normalizedArgs[i] === '-h') {
       result.help = true;
+    } else if (normalizedArgs[i] === '--debug') {
+      result.debug = true;
     } else if (normalizedArgs[i] === '--register' && i + 1 < normalizedArgs.length) {
       result.register = normalizedArgs[i + 1];
       i++; // Skip next argument
@@ -61,7 +66,7 @@ function parseArgs(): ParsedArgs {
       process.exit(1);
     } else if (normalizedArgs[i]?.startsWith('-')) {
       console.error(`Unknown argument: ${args[i]}`);
-      console.error("Usage: bun src/morpheum-bot/index.ts [--register <server-url>] [--help]");
+      console.error("Usage: bun src/morpheum-bot/index.ts [--register <server-url>] [--debug] [--help]");
       console.error("Use --help for more information.");
       process.exit(1);
     }
@@ -252,7 +257,7 @@ if (username && password) {
 }
 
 // Create bot instance with tokenManager if available
-bot = new MorpheumBot(tokenManager);
+bot = new MorpheumBot(tokenManager, parsedArgs.debug);
 
 // Create initial client
 client = createMatrixClient(currentToken!, effectiveHomeserverUrl);
