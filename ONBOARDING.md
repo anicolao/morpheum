@@ -68,25 +68,97 @@ When someone invites you to the Morpheum Matrix rooms:
 
 ## Step 5: Development Environment Setup
 
-### Local Development
+### Prerequisites: Install Development Tools
+
+Morpheum uses **direnv** and **Nix** to automatically set up your development environment with all required tools and secrets when you enter the project directory.
+
+#### Install Nix
+1. **Install Nix** (the package manager):
+   ```bash
+   # On Linux/macOS
+   curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
+   ```
+   - Follow the installer prompts and restart your shell when complete
+
+#### Install direnv
+2. **Install direnv** (environment manager):
+   ```bash
+   # On macOS with Homebrew
+   brew install direnv
+   
+   # On Ubuntu/Debian
+   sudo apt install direnv
+   
+   # On other systems, see: https://direnv.net/docs/installation.html
+   ```
+
+3. **Set up direnv shell integration**:
+   ```bash
+   # For bash, add to ~/.bashrc:
+   echo 'eval "$(direnv hook bash)"' >> ~/.bashrc
+   
+   # For zsh, add to ~/.zshrc:
+   echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc
+   
+   # Restart your shell or source the config file
+   ```
+
+### Local Development Setup
+
 1. **Clone the repository:**
    ```bash
    git clone https://github.com/anicolao/morpheum.git
    cd morpheum
    ```
 
-2. **Install dependencies:**
+2. **Set up environment secrets:**
+   
+   When you first enter the directory, direnv will prompt you to allow the environment. This is expected:
    ```bash
-   bun install  # preferred
-   # or
-   npm install
+   # You'll see: direnv: error .envrc is blocked. Run `direnv allow` to approve its content
+   ```
+   
+   Before allowing direnv, create your secrets file:
+   ```bash
+   # Create .secrets file with your Matrix and GitHub credentials
+   cp << 'EOF' > .secrets
+   # Matrix Bot Configuration
+   export HOMESERVER_URL="https://matrix.org"
+   export MATRIX_USERNAME="your-bot-username"
+   export MATRIX_PASSWORD="your-bot-password"
+   # Or alternatively use an access token:
+   # export ACCESS_TOKEN="your-matrix-access-token"
+
+   # GitHub Configuration (optional, for advanced bot features)
+   export GITHUB_TOKEN="your-github-personal-access-token"
+
+   # Registration tokens for different homeservers (if registering bots)
+   # export REGISTRATION_TOKEN_MATRIX_ORG="your-registration-token"
+   EOF
+   ```
+   
+   **Edit the `.secrets` file** with your actual credentials:
+   - Matrix username/password or access token from your Matrix account
+   - GitHub personal access token (optional, but recommended for full functionality)
+
+3. **Allow direnv and activate environment:**
+   ```bash
+   direnv allow
+   ```
+   
+   This will:
+   - Automatically install `bun`, `ollama`, and other required tools via Nix
+   - Load your secrets as environment variables
+   - Set up the complete development environment
+
+4. **Install project dependencies:**
+   ```bash
+   bun install  # now available via Nix
    ```
 
-3. **Run tests:**
+5. **Run tests:**
    ```bash
    bun test
-   # or
-   npm test
    ```
 
 ### Understanding the Codebase
