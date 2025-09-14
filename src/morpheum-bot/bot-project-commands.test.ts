@@ -61,7 +61,8 @@ describe('MorpheumBot Project Commands', () => {
       await bot.processMessage('!help', '@user:example.com', mockSendMessage, '!room:example.com');
 
       expect(mockSendMessage).toHaveBeenCalledWith(
-        expect.stringContaining('!project create <git-url>')
+        expect.stringContaining('!project create <git-url>'),
+        expect.any(String)
       );
     });
   });

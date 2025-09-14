@@ -170,16 +170,20 @@ describe('MorpheumBot', () => {
       await bot.processMessage('!help', 'user', mockSendMessage);
       
       expect(mockSendMessage).toHaveBeenCalledWith(
-        expect.stringContaining('Available commands:')
+        expect.stringContaining('Matrix Bot Commands:'),
+        expect.any(String)
       );
       expect(mockSendMessage).toHaveBeenCalledWith(
-        expect.stringContaining('!llm switch')
+        expect.stringContaining('!llm switch'),
+        expect.any(String)
       );
       expect(mockSendMessage).toHaveBeenCalledWith(
-        expect.stringContaining('!openai')
+        expect.stringContaining('!openai'),
+        expect.any(String)
       );
       expect(mockSendMessage).toHaveBeenCalledWith(
-        expect.stringContaining('!ollama')
+        expect.stringContaining('!ollama'),
+        expect.any(String)
       );
     });
   });

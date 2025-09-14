@@ -249,7 +249,7 @@ export class MorpheumBot {
     if (body.startsWith("!help")) {
       const message = `Hello! I am the Morpheum Bot. I am still under development.
 
-Available commands:
+**Matrix Bot Commands:**
 - \`!help\` - Show this help message
 - \`!tasks\` - Show current tasks
 - \`!devlog\` - Show development log
@@ -269,8 +269,23 @@ Available commands:
 - \`!gauntlet list\` - List available gauntlet tasks
 - \`!gauntlet run --model <model> [--provider <openai|ollama>] [--task <task>]\` - Run gauntlet evaluation (supports Unicode dashes like —model)
 
+**For Developers & AI Agents:**
+- **Project Structure**: Tasks are managed in \`docs/_tasks/\` (not TASKS.md directly)
+- **Development Logs**: Create individual files in \`docs/_devlogs/\` (not DEVLOG.md directly)
+- **Agent Guidelines**: See \`AGENTS.md\` for AI agent best practices and restrictions
+- **Documentation**: \`README.md\`, \`VISION.md\`, \`ARCHITECTURE.md\`, \`CONTRIBUTING.md\`
+- **Preferred Tools**: Use \`bun\` over \`npm\` when possible
+- **GitHub Pages**: Documentation published at https://anicolao.github.io/morpheum/
+- **Status Pages**: Tasks and devlogs aggregated at /status/tasks/ and /status/devlogs/
+
+**Important Notes for Agents:**
+- DO NOT edit TASKS.md or DEVLOG.md directly (use directory-based system)
+- Follow the pre-commit hooks and merge conflict prevention system
+- Adhere to project conventions and coding style
+- Include YAML front matter in task and devlog files
+
 For regular tasks, just type your request without a command prefix.`;
-      await sendMessage(message);
+      await sendMarkdownMessage(message, sendMessage);
     } else if (body.startsWith("!tasks")) {
       // Read task files from the new directory structure and show only uncompleted tasks
       const allTasks = await getTaskFiles("docs/_tasks");
