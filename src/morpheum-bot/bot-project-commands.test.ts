@@ -43,7 +43,25 @@ describe('MorpheumBot Project Commands', () => {
       await bot.processMessage('!project create', '@user:example.com', mockSendMessage, '!room:example.com');
 
       expect(mockSendMessage).toHaveBeenCalledWith(
-        expect.stringContaining('Git URL is required')
+        expect.stringContaining('Repository name or Git URL is required')
+      );
+    });
+
+    it('should handle --new flag with repository name', async () => {
+      await bot.processMessage('!project create --new my-repo', '@user:example.com', mockSendMessage, '!room:example.com');
+
+      // Should attempt to create with --new flag
+      // We can't test the full flow without mocking the GitHub client
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.stringContaining('Creating new GitHub repository')
+      );
+    });
+
+    it('should handle invalid repository name with --new flag', async () => {
+      await bot.processMessage('!project create --new invalid@repo!', '@user:example.com', mockSendMessage, '!room:example.com');
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid repository name')
       );
     });
 
@@ -51,7 +69,25 @@ describe('MorpheumBot Project Commands', () => {
       await bot.processMessage('!project unknown', '@user:example.com', mockSendMessage, '!room:example.com');
 
       expect(mockSendMessage).toHaveBeenCalledWith(
-        expect.stringContaining('Usage: !project <create|help>')
+        expect.stringContaining('Usage: !project <create|status|help>')
+      );
+    });
+  });
+
+  describe('!project status command', () => {
+    it('should handle missing git URL', async () => {
+      await bot.processMessage('!project status', '@user:example.com', mockSendMessage, '!room:example.com');
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.stringContaining('Git URL is required')
+      );
+    });
+
+    it('should handle repository status request', async () => {
+      await bot.processMessage('!project status facebook/react', '@user:example.com', mockSendMessage, '!room:example.com');
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.stringContaining('Fetching repository statistics')
       );
     });
   });
