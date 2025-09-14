@@ -166,20 +166,58 @@ describe('MorpheumBot', () => {
   });
 
   describe('Help Command', () => {
-    it('should show help message with all available commands', async () => {
+    it('should show enhanced help message with all available commands', async () => {
       await bot.processMessage('!help', 'user', mockSendMessage);
       
+      // Check that the enhanced help message is displayed with proper formatting
       expect(mockSendMessage).toHaveBeenCalledWith(
-        expect.stringContaining('Available commands:')
+        expect.stringContaining('🤖 **Welcome to Morpheum Bot!**'),
+        expect.any(String) // HTML version
       );
       expect(mockSendMessage).toHaveBeenCalledWith(
-        expect.stringContaining('!llm switch')
+        expect.stringContaining('Available Commands:'),
+        expect.any(String)
       );
       expect(mockSendMessage).toHaveBeenCalledWith(
-        expect.stringContaining('!openai')
+        expect.stringContaining('!llm switch'),
+        expect.any(String)
       );
       expect(mockSendMessage).toHaveBeenCalledWith(
-        expect.stringContaining('!ollama')
+        expect.stringContaining('!openai'),
+        expect.any(String)
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.stringContaining('!ollama'),
+        expect.any(String)
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.stringContaining('Getting Started:'),
+        expect.any(String)
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.stringContaining('Pro Tips:'),
+        expect.any(String)
+      );
+    });
+
+    it('should show brief help when requested', async () => {
+      await bot.processMessage('!help brief', 'user', mockSendMessage);
+      
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.stringContaining('🤖 **Morpheum Bot - Quick Help**'),
+        expect.any(String)
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.stringContaining('Getting Started:'),
+        expect.any(String)
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.stringContaining('Most Used Commands:'),
+        expect.any(String)
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.stringContaining('Need more help?'),
+        expect.any(String)
       );
     });
   });

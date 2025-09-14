@@ -176,11 +176,14 @@ describe('Token Commands', () => {
       
       await bot.processMessage('!help', 'test-user', mockSendMessage);
       
+      // With the enhanced help command, sendMarkdownMessage is called with both markdown and HTML
       expect(mockSendMessage).toHaveBeenCalledWith(
-        expect.stringContaining('!tokens')
+        expect.stringContaining('!tokens'),
+        expect.any(String) // HTML version
       );
       expect(mockSendMessage).toHaveBeenCalledWith(
-        expect.stringContaining('!token refresh')
+        expect.stringContaining('!token refresh'),
+        expect.any(String) // HTML version
       );
     });
   });

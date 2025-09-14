@@ -49,10 +49,12 @@ describe('MorpheumBot Copilot Integration', () => {
     await bot.processMessage('!help', 'test-user', mockSendMessage);
     
     expect(mockSendMessage).toHaveBeenCalledWith(
-      expect.stringContaining('!llm switch copilot <repository>')
+      expect.stringContaining('!llm switch copilot <repository>'),
+      expect.any(String) // HTML version
     );
     expect(mockSendMessage).toHaveBeenCalledWith(
-      expect.stringContaining('!copilot status')
+      expect.stringContaining('!copilot status'),
+      expect.any(String) // HTML version
     );
   });
 

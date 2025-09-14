@@ -255,30 +255,79 @@ export class MorpheumBot {
 
   private async handleInfoCommand(body: string, sendMessage: MessageSender, roomId?: string) {
     if (body.startsWith("!help")) {
-      const message = `Hello! I am the Morpheum Bot. I am still under development.
+      // Check if the user wants a specific help topic or brief help
+      const helpArgs = body.split(' ').slice(1);
+      
+      if (helpArgs.length > 0 && helpArgs[0] === 'brief') {
+        const briefMessage = `🤖 **Morpheum Bot - Quick Help**
 
-Available commands:
+**Getting Started:**
+- Type any task naturally: "Create a hello world program"
+- Use commands starting with \`!\` for specific actions
+
+**Most Used Commands:**
+- \`!help\` - Full help (this message shows brief help)
+- \`!tasks\` - Show current project tasks
+- \`!llm status\` - Check current AI provider
+- \`!project create <git-url>\` - Create project room
+
+**Need more help?** Type \`!help\` for full command list.`;
+        await sendMarkdownMessage(briefMessage, sendMessage);
+      } else {
+        const message = `🤖 **Welcome to Morpheum Bot!**
+
+I'm an AI assistant that helps with software development tasks. I can write code, analyze projects, run tests, and much more!
+
+**🚀 Getting Started:**
+Just type your request naturally! For example:
+- "Create a simple web server in Python"
+- "Help me debug this JavaScript function"
+- "Write tests for my API endpoints"
+
+**📋 Available Commands:**
+
+**Basic Commands:**
 - \`!help\` - Show this help message
-- \`!tasks\` - Show current tasks
+- \`!help brief\` - Show quick reference
+- \`!tasks\` - Show current project tasks
 - \`!devlog\` - Show development log
-- \`!tokens\` - Show Matrix authentication token status
-- \`!token refresh\` - Manually refresh Matrix authentication token
-- \`!llm status\` - Show current LLM provider and configuration
-- \`!llm switch openai [model] [baseUrl]\` - Switch to OpenAI (requires OPENAI_API_KEY env var)
-- \`!llm switch ollama [model] [baseUrl]\` - Switch to Ollama
-- \`!llm switch copilot <repository>\` - Switch to GitHub Copilot (requires GITHUB_TOKEN env var)
-- \`!openai <prompt>\` - Send a direct prompt to OpenAI (requires API key)
-- \`!ollama <prompt>\` - Send a direct prompt to Ollama
+
+**AI Provider Management:**
+- \`!llm status\` - Show current AI provider and configuration
+- \`!llm switch openai [model] [baseUrl]\` - Switch to OpenAI (requires OPENAI_API_KEY)
+- \`!llm switch ollama [model] [baseUrl]\` - Switch to Ollama (local AI)
+- \`!llm switch copilot <repository>\` - Switch to GitHub Copilot (requires GITHUB_TOKEN)
+
+**Direct AI Interaction:**
+- \`!openai <prompt>\` - Send direct prompt to OpenAI
+- \`!ollama <prompt>\` - Send direct prompt to Ollama
+
+**Authentication & Tokens:**
+- \`!tokens\` - Show Matrix authentication status
+- \`!token refresh\` - Manually refresh authentication token
+
+**Project Management:**
+- \`!project create <git-url>\` - Create a new project room for a GitHub repository
+
+**GitHub Copilot Integration:**
 - \`!copilot status [session-id]\` - Check copilot session status
 - \`!copilot list\` - List active copilot sessions
 - \`!copilot cancel <session-id>\` - Cancel a copilot session
-- \`!project create <git-url>\` - Create a new project room for a GitHub repository
-- \`!gauntlet help\` - Show gauntlet evaluation help
-- \`!gauntlet list\` - List available gauntlet tasks
-- \`!gauntlet run --model <model> [--provider <openai|ollama>] [--task <task>]\` - Run gauntlet evaluation (supports Unicode dashes like —model)
 
-For regular tasks, just type your request without a command prefix.`;
-      await sendMessage(message);
+**AI Model Evaluation:**
+- \`!gauntlet help\` - Show gauntlet evaluation help
+- \`!gauntlet list\` - List available evaluation tasks
+- \`!gauntlet run --model <model> [--provider <openai|ollama>] [--task <task>]\` - Run AI model evaluation
+
+**💡 Pro Tips:**
+- You can mention me by name instead of using \`!\` commands
+- I support Unicode dashes (—) in commands for better readability
+- For complex tasks, I'll break them down and work step by step
+- I can stream responses in real-time for better interaction
+
+**Need Help?** Just ask! I'm here to assist with any development tasks.`;
+        await sendMarkdownMessage(message, sendMessage);
+      }
     } else if (body.startsWith("!tasks")) {
       // Read task files from the new directory structure and show only uncompleted tasks
       const allTasks = await getTaskFiles("docs/_tasks");
