@@ -27,12 +27,13 @@ Morpheum has progressed beyond its initial conceptual phase and now has a workin
 
 **To get started:**
 
-1.  Review the project vision in [`VISION.md`](VISION.md).
-2.  Understand the architecture in [`ARCHITECTURE.md`](ARCHITECTURE.md).  
-3.  Check the current development roadmap in [`ROADMAP.md`](ROADMAP.md).
-4.  Read the contribution guidelines in [`CONTRIBUTING.md`](CONTRIBUTING.md).
-5.  Browse the development log in [DEVLOG.md](DEVLOG.md) for historical context.
-6.  Understand the expected behavior of AI agents in [AGENTS.md](AGENTS.md).
+1.  Review our **[Developer Onboarding Guide](ONBOARDING.md)** for comprehensive setup instructions.
+2.  Review the project vision in [`VISION.md`](VISION.md).
+3.  Understand the architecture in [`ARCHITECTURE.md`](ARCHITECTURE.md).  
+4.  Check the current development roadmap in [`ROADMAP.md`](ROADMAP.md).
+5.  Read the contribution guidelines in [`CONTRIBUTING.md`](CONTRIBUTING.md).
+6.  Browse the development log in [DEVLOG.md](DEVLOG.md) for historical context.
+7.  Understand the expected behavior of AI agents in [AGENTS.md](AGENTS.md).
 
 **For Development:**
 - The project uses a Matrix-based workflow where AI agents handle GitHub operations

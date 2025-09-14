@@ -2,6 +2,8 @@
 
 We welcome contributions to the Morpheum project! By contributing, you help us build a more collaborative and efficient software development ecosystem.
 
+**New to the project?** Start with our [Developer Onboarding Guide](ONBOARDING.md) for comprehensive setup instructions including Matrix account creation, bot configuration, and troubleshooting.
+
 ## How to Contribute (Matrix-Centric Workflow)
 
 All human interaction and contribution to Morpheum projects are designed to occur primarily within dedicated Matrix rooms. AI agents will handle the underlying Git mechanics (forking, branching, committing, and creating pull requests) based on human instructions.
