@@ -23,7 +23,6 @@ function showHelp(): void {
   console.log("");
   console.log("USAGE:");
   console.log("  bun src/morpheum-bot/index.ts [OPTIONS]");
-  console.log("  npm run bot [OPTIONS]");
   console.log("");
   console.log("OPTIONS:");
   console.log("  --register <server-url>    Register a new user account on the specified Matrix server");
