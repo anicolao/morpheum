@@ -228,6 +228,26 @@ export class CopilotClient implements LLMClient {
    */
   private async startCopilotSession(prompt: string): Promise<CopilotSession> {
     try {
+      // Check if this is an iteration request (applying PR comments, addressing feedback, etc.)
+      const iterationInfo = this.detectIterationRequest(prompt);
+      
+      if (iterationInfo.isIteration) {
+        console.log(`Detected iteration request with keywords: ${iterationInfo.keywords.join(', ')}`);
+        
+        // Try to find existing work to iterate on
+        const existingWork = await this.findExistingWorkForIteration(
+          prompt, 
+          iterationInfo.prNumber, 
+          iterationInfo.issueNumber
+        );
+        
+        if (existingWork && existingWork.issue) {
+          console.log(`Found existing issue #${existingWork.issue.number} for iteration`);
+          return this.continueExistingSession(prompt, existingWork.issue, existingWork.pr);
+        } else {
+          console.log('No suitable existing work found for iteration, creating new session');
+        }
+      }
       // Step 1: Check if Copilot is available and get repository/bot IDs
       const repositoryData = await this.octokit.graphql(`
         query GetRepositoryData($owner: String!, $repo: String!) {
@@ -819,12 +839,267 @@ export class CopilotClient implements LLMClient {
   }
 
   /**
+   * Continue an existing Copilot session by adding a new comment to the existing issue
+   */
+  private async continueExistingSession(
+    prompt: string, 
+    existingIssue: any, 
+    existingPr?: any
+  ): Promise<CopilotSession> {
+    try {
+      // Generate a new session ID for this iteration
+      const sessionId = `cop_real_${existingIssue.number}_${Date.now()}`;
+      
+      // Create a comment on the existing issue with the new task
+      const commentBody = `🔄 **GitHub Copilot Iteration Request**
+
+Session ID: ${sessionId}
+Status: pending
+
+**Iteration Task:**
+${prompt}
+
+*This is a follow-up task on the existing issue. The GitHub Copilot coding agent will apply the requested changes to the existing work.*
+
+Previous work: ${existingPr ? `Pull Request [#${existingPr.number}](${existingPr.html_url})` : 'In progress'}`;
+
+      await this.octokit.rest.issues.createComment({
+        owner: this.owner,
+        repo: this.repo,
+        issue_number: existingIssue.number,
+        body: commentBody,
+      });
+
+      // Check if Copilot is still assigned to the issue
+      const issueAssignees = existingIssue.assignees || [];
+      const copilotAssigned = issueAssignees.some((assignee: any) => assignee.login === 'copilot-swe-agent');
+      
+      if (!copilotAssigned) {
+        // Re-assign Copilot to the issue if it's not already assigned
+        try {
+          await this.octokit.rest.issues.addAssignees({
+            owner: this.owner,
+            repo: this.repo,
+            issue_number: existingIssue.number,
+            assignees: ['copilot-swe-agent'],
+          });
+        } catch (error) {
+          console.warn('Failed to re-assign Copilot to existing issue:', error);
+        }
+      }
+
+      const session: CopilotSession = {
+        id: sessionId,
+        status: 'pending',
+        issueNumber: existingIssue.number,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        pullRequestUrl: existingPr?.html_url,
+        pullRequestState: existingPr ? (existingPr.draft ? 'draft' : 'ready') : undefined,
+      };
+
+      return session;
+    } catch (error) {
+      console.warn('Failed to continue existing session, falling back to new session:', error);
+      // If we can't continue the existing session, fall back to creating a new one
+      throw error; // This will cause the caller to fall back to the normal flow
+    }
+  }
+
+  /**
+   * Detect if a prompt is asking to iterate on existing work (apply PR comments, address feedback, etc.)
+   */
+  private detectIterationRequest(prompt: string): { 
+    isIteration: boolean; 
+    prNumber?: number; 
+    issueNumber?: number; 
+    keywords: string[] 
+  } {
+    const lowerPrompt = prompt.toLowerCase();
+    
+    // Keywords that suggest iteration on existing work
+    // Use more flexible patterns to match variations
+    const iterationPatterns = [
+      /apply\s+(?:review\s+)?comments?/,
+      /address\s+(?:the\s+|review\s+|pr\s+|pull\s+request\s+)?feedback/,
+      /apply\s+pr\s+comments?/,
+      /apply\s+pull\s+request\s+comments?/,
+      /fix\s+review\s+comments?/,
+      /address\s+pr\s+feedback/,
+      /address\s+pull\s+request\s+feedback/,
+      /iterate\s+on\s+pr/,
+      /iterate\s+on\s+pull\s+request/,
+      /update\s+pr/,
+      /update\s+pull\s+request/,
+      /fix\s+pr\s+issues?/,
+      /fix\s+pull\s+request\s+issues?/,
+      /respond\s+to\s+feedback/,
+      /address\s+(?:the\s+)?suggestions?/,
+      /implement\s+(?:the\s+)?suggestions?/,
+      /apply\s+(?:the\s+)?suggestions?/,
+      /update\s+based\s+on\s+feedback/,
+      /make\s+requested\s+changes/,
+      /address\s+reviewer\s+comments?/
+    ];
+    
+    const foundKeywords: string[] = [];
+    for (const pattern of iterationPatterns) {
+      const match = lowerPrompt.match(pattern);
+      if (match) {
+        foundKeywords.push(match[0]);
+      }
+    }
+    
+    const isIteration = foundKeywords.length > 0;
+    
+    // Extract PR or issue numbers from the prompt
+    const prMatches = prompt.match(/#(\d+)|pr[:\s#](\d+)|pull request[:\s#](\d+)/gi);
+    const issueMatches = prompt.match(/issue[:\s]*#?(\d+)/gi);
+    
+    let prNumber: number | undefined;
+    let issueNumber: number | undefined;
+    
+    if (prMatches && prMatches.length > 0) {
+      const match = prMatches[0].match(/(\d+)/);
+      if (match) {
+        prNumber = parseInt(match[1], 10);
+      }
+    }
+    
+    if (issueMatches && issueMatches.length > 0) {
+      const match = issueMatches[0].match(/(\d+)/);
+      if (match) {
+        issueNumber = parseInt(match[1], 10);
+      }
+    }
+    
+    return {
+      isIteration,
+      prNumber,
+      issueNumber,
+      keywords: foundKeywords
+    };
+  }
+
+  /**
+   * Find existing Copilot issues/PRs that could be iterated upon
+   */
+  private async findExistingWorkForIteration(
+    prompt: string, 
+    prNumber?: number, 
+    issueNumber?: number
+  ): Promise<{ issue?: any; pr?: any } | null> {
+    try {
+      // If we have explicit PR or issue numbers, try to find them
+      if (prNumber) {
+        try {
+          const pr = await this.octokit.rest.pulls.get({
+            owner: this.owner,
+            repo: this.repo,
+            pull_number: prNumber,
+          });
+          
+          // Check if this PR is related to Copilot (created by copilot or has Copilot in title)
+          if (pr.data.state === 'open' && 
+              (pr.data.user?.login === 'copilot-swe-agent' || 
+               pr.data.title?.includes('Copilot') || 
+               pr.data.body?.includes('Copilot'))) {
+            return { pr: pr.data };
+          }
+        } catch (error) {
+          console.warn(`PR #${prNumber} not found or not accessible:`, error);
+        }
+      }
+      
+      if (issueNumber) {
+        try {
+          const issue = await this.octokit.rest.issues.get({
+            owner: this.owner,
+            repo: this.repo,
+            issue_number: issueNumber,
+          });
+          
+          // Check if this issue is a Copilot task
+          if (issue.data.state === 'open' && 
+              (issue.data.title?.includes('Copilot Task:') || 
+               issue.data.body?.includes('GitHub Copilot Coding Agent Task'))) {
+            return { issue: issue.data };
+          }
+        } catch (error) {
+          console.warn(`Issue #${issueNumber} not found or not accessible:`, error);
+        }
+      }
+      
+      // If no explicit numbers or they didn't work, search for recent Copilot work
+      // Get recent open Copilot issues
+      const issues = await this.octokit.rest.issues.listForRepo({
+        owner: this.owner,
+        repo: this.repo,
+        assignee: 'copilot-swe-agent',
+        state: 'open',
+        sort: 'updated',
+        per_page: 10,
+      });
+      
+      // Look for issues with recent PRs
+      for (const issue of issues.data) {
+        if (issue.title?.includes('Copilot Task:') || 
+            issue.body?.includes('GitHub Copilot Coding Agent Task')) {
+          
+          // Check if this issue has an associated PR
+          const timeline = await this.octokit.rest.issues.listEventsForTimeline({
+            owner: this.owner,
+            repo: this.repo,
+            issue_number: issue.number,
+          });
+          
+          const pullRequestEvent = timeline.data.find(event => 
+            event.event === 'cross-referenced' && 
+            event.source?.issue?.pull_request
+          );
+          
+          if (pullRequestEvent && pullRequestEvent.source?.issue?.pull_request) {
+            const prNumber = pullRequestEvent.source.issue.number;
+            try {
+              const pr = await this.octokit.rest.pulls.get({
+                owner: this.owner,
+                repo: this.repo,
+                pull_number: prNumber,
+              });
+              
+              // Return the most recent open PR
+              if (pr.data.state === 'open') {
+                return { issue: issue, pr: pr.data };
+              }
+            } catch (error) {
+              console.warn(`Failed to fetch PR #${prNumber}:`, error);
+            }
+          }
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.warn('Failed to find existing work for iteration:', error);
+      return null;
+    }
+  }
+
+  /**
    * Cancel a specific session (utility method for cancel commands)
    */
   async cancelSession(sessionId: string): Promise<boolean> {
     // TODO: Implement session cancellation via GitHub API
     console.log(`Cancelling session ${sessionId}`);
     return true;
+  }
+
+  /**
+   * Test helper method to expose iteration detection for testing
+   * @internal
+   */
+  public _testDetectIterationRequest(prompt: string) {
+    return this.detectIterationRequest(prompt);
   }
 
   /**
