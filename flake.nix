@@ -23,7 +23,7 @@
           };
         };
       in {
-        devShells.default = pkgs.mkShell {packages = with pkgs; [bun claude-code ollama];};
+        devShells.default = pkgs.mkShell {packages = with pkgs; [bun claude-code git ollama];};
       }
     );
 }
