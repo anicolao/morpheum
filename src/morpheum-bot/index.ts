@@ -15,6 +15,33 @@ import { normalizeDashes } from "./dash-normalizer";
 // Parse command line arguments
 interface ParsedArgs {
   register?: string;
+  help?: boolean;
+}
+
+function showHelp(): void {
+  console.log("Morpheum Bot - Matrix AI Assistant");
+  console.log("");
+  console.log("USAGE:");
+  console.log("  bun src/morpheum-bot/index.ts [OPTIONS]");
+  console.log("  npm run bot [OPTIONS]");
+  console.log("");
+  console.log("OPTIONS:");
+  console.log("  --register <server-url>    Register a new user account on the specified Matrix server");
+  console.log("  --help, -h                 Show this help message and exit");
+  console.log("");
+  console.log("EXAMPLES:");
+  console.log("  bun src/morpheum-bot/index.ts                                 # Start bot with existing credentials");
+  console.log("  bun src/morpheum-bot/index.ts --register matrix.morpheum.dev  # Register new user and start bot");
+  console.log("  bun src/morpheum-bot/index.ts --help                          # Show this help message");
+  console.log("");
+  console.log("ENVIRONMENT VARIABLES:");
+  console.log("  HOMESERVER_URL              Matrix homeserver URL (required unless using --register)");
+  console.log("  ACCESS_TOKEN                Matrix access token (required if no username/password)");
+  console.log("  MATRIX_USERNAME             Matrix username for login/registration");
+  console.log("  MATRIX_PASSWORD             Matrix password for login/registration");
+  console.log("  REGISTRATION_TOKEN_*        Registration token for specific servers (when using --register)");
+  console.log("");
+  console.log("For more information, see: https://github.com/anicolao/morpheum");
 }
 
 function parseArgs(): ParsedArgs {
@@ -23,17 +50,20 @@ function parseArgs(): ParsedArgs {
   const result: ParsedArgs = {};
 
   for (let i = 0; i < normalizedArgs.length; i++) {
-    if (normalizedArgs[i] === '--register' && i + 1 < normalizedArgs.length) {
+    if (normalizedArgs[i] === '--help' || normalizedArgs[i] === '-h') {
+      result.help = true;
+    } else if (normalizedArgs[i] === '--register' && i + 1 < normalizedArgs.length) {
       result.register = normalizedArgs[i + 1];
       i++; // Skip next argument
     } else if (normalizedArgs[i] === '--register') {
       console.error("Error: --register requires a server URL argument");
-      console.error("Usage: bun src/index.ts --register <server-url>");
-      console.error("Example: bun src/index.ts --register matrix.morpheum.dev");
+      console.error("Usage: bun src/morpheum-bot/index.ts --register <server-url>");
+      console.error("Example: bun src/morpheum-bot/index.ts --register matrix.morpheum.dev");
       process.exit(1);
     } else if (normalizedArgs[i]?.startsWith('-')) {
       console.error(`Unknown argument: ${args[i]}`);
-      console.error("Usage: bun src/index.ts [--register <server-url>]");
+      console.error("Usage: bun src/morpheum-bot/index.ts [--register <server-url>] [--help]");
+      console.error("Use --help for more information.");
       process.exit(1);
     }
   }
@@ -42,6 +72,12 @@ function parseArgs(): ParsedArgs {
 }
 
 const parsedArgs = parseArgs();
+
+// Handle help flag
+if (parsedArgs.help) {
+  showHelp();
+  process.exit(0);
+}
 
 // Functions for registration
 function generateRegistrationTokenEnvVar(serverUrl: string): string {
