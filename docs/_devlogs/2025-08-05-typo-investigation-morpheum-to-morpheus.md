@@ -1,5 +1,5 @@
 ---
-title: "Typo Investigation ("Morpheum" to "Morpheus")"
+title: "Typo Investigation (Morpheum to Morpheus)"
 date: 2025-08-05
 author: "Development Team"
 tags: ["development"]

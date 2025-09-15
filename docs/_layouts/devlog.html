@@ -1,0 +1,24 @@
+---
+layout: default
+---
+
+<article class="devlog">
+  <header class="devlog-header">
+    <h1 class="devlog-title">{{ page.title | escape }}</h1>
+    <div class="devlog-meta">
+      {% if page.date %}<span class="devlog-date">Date: {{ page.date | date: "%B %d, %Y" }}</span>{% endif %}
+      {% if page.author %}<span class="devlog-author">Author: {{ page.author }}</span>{% endif %}
+    </div>
+    {% if page.tags %}
+    <div class="devlog-tags">
+      {% for tag in page.tags %}
+        <span class="tag">{{ tag }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </header>
+
+  <div class="devlog-content">
+    {{ content }}
+  </div>
+</article>
