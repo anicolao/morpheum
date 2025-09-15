@@ -11,7 +11,7 @@ import { CopilotClient } from "./copilotClient";
 import { getTaskFiles, filterUncompletedTasks, assembleTasksMarkdown } from "./task-utils";
 import * as net from "net";
 import { normalizeArgsArray } from "./dash-normalizer";
-import { ProjectRoomManager, ProjectRoomConfig } from "./project-room-manager";
+import { ProjectRoomManager, ProjectRoomConfig, ProjectRoomCreationOptions } from "./project-room-manager";
 import { MatrixClient } from "matrix-bot-sdk";
 
 type MessageSender = (message: string, html?: string) => Promise<void>;
@@ -119,7 +119,8 @@ export class MorpheumBot {
    */
   setMatrixClient(matrixClient: MatrixClient): void {
     this.matrixClient = matrixClient;
-    this.projectRoomManager = new ProjectRoomManager(matrixClient);
+    const githubToken = process.env.GITHUB_TOKEN || this.llmConfig.copilot.apiKey;
+    this.projectRoomManager = new ProjectRoomManager(matrixClient, githubToken);
   }
 
   /**
@@ -273,6 +274,8 @@ Available commands:
 - \`!copilot list\` - List active copilot sessions
 - \`!copilot cancel <session-id>\` - Cancel a copilot session
 - \`!project create <git-url>\` - Create a new project room for a GitHub repository
+- \`!project create --new <repo-name>\` - Create a new GitHub repository and project room
+- \`!project status <git-url>\` - Show repository statistics and information
 - \`!gauntlet help\` - Show gauntlet evaluation help
 - \`!gauntlet list\` - List available gauntlet tasks
 - \`!gauntlet run --model <model> [--provider <openai|ollama>] [--task <task>]\` - Run gauntlet evaluation (supports Unicode dashes like —model)
@@ -703,11 +706,17 @@ ${resultSummary}
 
     if (subcommand === 'create') {
       await this.handleProjectCreate(parts.slice(2), sendMessage, roomId, userId);
+    } else if (subcommand === 'status') {
+      await this.handleProjectStatus(parts.slice(2), sendMessage, roomId, userId);
     } else if (subcommand === 'help') {
       const helpMessage = `🏗️  **Project Room Management**
 
 **Create a project room:**
 \`!project create <git-url>\`
+\`!project create --new <repo-name>\`
+
+**Get repository statistics:**
+\`!project status <git-url>\`
 
 **Supported URL formats:**
 - SSH: git@github.com:user/repo
@@ -718,16 +727,20 @@ ${resultSummary}
 - \`!project create git@github.com:facebook/react\`
 - \`!project create https://github.com/vercel/next.js\`
 - \`!project create microsoft/vscode\`
+- \`!project create --new my-awesome-project\`
+- \`!project status facebook/react\`
 
 **Features:**
 ✅ Automatic GitHub Copilot integration
 ✅ Private invite-only rooms
 ✅ Project-specific AI context
-✅ Persistent configuration`;
+✅ Persistent configuration
+✅ Create new repositories with --new flag
+✅ Repository statistics and information`;
 
       await sendMarkdownMessage(helpMessage, sendMessage);
     } else {
-      await sendMessage('Usage: !project <create|help>\\nUse `!project help` for detailed information.');
+      await sendMessage('Usage: !project <create|status|help>\\nUse `!project help` for detailed information.');
     }
   }
 
@@ -735,31 +748,70 @@ ${resultSummary}
    * Handle project room creation
    */
   private async handleProjectCreate(args: string[], sendMessage: MessageSender, roomId: string, userId: string) {
-    if (args.length === 0) {
-      await sendMessage('❌ Git URL is required. Usage: !project create <git-url>\\nExample: !project create facebook/react');
+    // Parse arguments for --new flag
+    const isNewRepository = args.includes('--new');
+    const filteredArgs = args.filter(arg => arg !== '--new');
+
+    if (filteredArgs.length === 0) {
+      await sendMessage('❌ Repository name or Git URL is required.\n\nUsage:\n- `!project create <git-url>` (for existing repositories)\n- `!project create --new <repo-name>` (to create new repository)\n\nExample: `!project create --new my-awesome-project`');
       return;
     }
 
-    const gitUrl = args[0]!;
+    let gitUrl = filteredArgs[0]!;
+    let options: ProjectRoomCreationOptions | undefined;
+
+    // If --new flag is present, we need to construct the GitHub URL and set options
+    if (isNewRepository) {
+      const repoName = gitUrl;
+      
+      // Validate repository name
+      if (!/^[a-zA-Z0-9._-]+$/.test(repoName)) {
+        await sendMessage('❌ Invalid repository name. Repository names can only contain alphanumeric characters, dots, hyphens, and underscores.');
+        return;
+      }
+
+      // Get current GitHub user to construct the URL
+      try {
+        // We'll use the current user's username from GitHub token
+        // For now, we'll use a placeholder that will be resolved in the ProjectRoomManager
+        gitUrl = `__NEW_REPO__/${repoName}`;
+        
+        options = {
+          createRepository: true,
+          repositoryOptions: {
+            name: repoName,
+            description: `Created via Morpheum Bot for project room`,
+            private: false,
+            auto_init: true,
+          }
+        };
+      } catch (error) {
+        await sendMessage('❌ Failed to process new repository request. Make sure GITHUB_TOKEN is configured.');
+        return;
+      }
+    }
     
     try {
-      await sendMessage('🔨 Creating project room...');
+      await sendMessage(isNewRepository ? '🔨 Creating new GitHub repository and project room...' : '🔨 Creating project room...');
       
-      // Create the project room
-      const creationResult = await this.projectRoomManager!.createProjectRoom(gitUrl, userId);
+      // Create the project room (and optionally the repository)
+      const creationResult = await this.projectRoomManager!.createProjectRoom(gitUrl, userId, options);
       
       if (!creationResult.success) {
         await sendMessage(`❌ ${creationResult.error}`);
         return;
       }
 
-      const { roomId: newRoomId, projectName } = creationResult;
+      const { roomId: newRoomId, projectName, repositoryCreated, repositoryUrl } = creationResult;
       
       // Invite the user to the new room
       const invitationResult = await this.projectRoomManager!.inviteUserToRoom(newRoomId!, userId);
       
       if (!invitationResult.success) {
-        await sendMessage(`✅ Project room '${projectName}' created, but failed to invite you: ${invitationResult.error}\\nPlease join manually: ${newRoomId}`);
+        const message = repositoryCreated 
+          ? `✅ Repository and project room '${projectName}' created, but failed to invite you: ${invitationResult.error}\\nRepository: ${repositoryUrl}\\nPlease join manually: ${newRoomId}`
+          : `✅ Project room '${projectName}' created, but failed to invite you: ${invitationResult.error}\\nPlease join manually: ${newRoomId}`;
+        await sendMessage(message);
         return;
       }
 
@@ -770,14 +822,110 @@ ${resultSummary}
       }
 
       // Send confirmation message in the original room
-      await sendMessage(`✅ Project room '${projectName}' created! You've been invited to join.`);
+      if (repositoryCreated) {
+        await sendMessage(`✅ **GitHub repository and project room '${projectName}' created!**\\n🔗 Repository: ${repositoryUrl}\\n👥 You've been invited to join the project room.`);
+      } else {
+        await sendMessage(`✅ Project room '${projectName}' created! You've been invited to join.`);
+      }
 
       // Send welcome message in the new room
-      await this.projectRoomManager!.sendWelcomeMessage(newRoomId!, projectConfig?.repository || gitUrl);
+      const repoUrl = repositoryUrl || gitUrl;
+      await this.projectRoomManager!.sendWelcomeMessage(newRoomId!, projectConfig?.repository || repoUrl);
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       await sendMessage(`❌ Unexpected error creating project room: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Handle project status command
+   */
+  private async handleProjectStatus(args: string[], sendMessage: MessageSender, roomId: string, userId: string) {
+    if (args.length === 0) {
+      await sendMessage('❌ Git URL is required. Usage: !project status <git-url>\\nExample: !project status facebook/react');
+      return;
+    }
+
+    const gitUrl = args[0]!;
+    
+    try {
+      await sendMessage('📊 Fetching repository statistics...');
+      
+      const stats = await this.projectRoomManager!.getRepositoryStats(gitUrl);
+      
+      // Format the statistics into a nice markdown message
+      const { repository, commitCount, contributors, lastCommit } = stats;
+      
+      // Format last commit date
+      const lastCommitDate = lastCommit ? new Date(lastCommit.author.date).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      }) : 'Never';
+
+      // Format contributors list
+      const contributorsList = contributors.length > 0 
+        ? contributors.slice(0, 5).map((c, i) => `${i + 1}. **${c.login}** (${c.contributions} commits)`).join('\\n')
+        : 'No contributors found';
+
+      // Show only top 5 contributors, indicate if there are more
+      const contributorsNote = contributors.length > 5 
+        ? `\\n*...and ${contributors.length - 5} more contributors*`
+        : '';
+
+      const statusMessage = `📊 **Repository Statistics for ${repository.full_name}**
+
+**📈 Activity:**
+- **Commits:** ${commitCount.toLocaleString()}
+- **Last Commit:** ${lastCommitDate}
+- **Created:** ${new Date(repository.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+- **Last Updated:** ${new Date(repository.updated_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+
+**👥 Top Contributors:**
+${contributorsList}${contributorsNote}
+
+**📋 Repository Info:**
+- **Description:** ${repository.description || '*No description provided*'}
+- **License:** ${repository.license ? repository.license.name : '*No license specified*'}
+- **Default Branch:** ${repository.default_branch}
+- **Visibility:** ${repository.private ? 'Private' : 'Public'}
+
+**🔗 Links:**
+- **Repository:** https://github.com/${repository.full_name}
+- **Clone URL:** ${repository.clone_url}`;
+
+      if (lastCommit) {
+        const commitMessage = lastCommit.message.split('\\n')[0]; // First line only
+        const shortSha = lastCommit.sha.substring(0, 7);
+        const commitUrl = `https://github.com/${repository.full_name}/commit/${lastCommit.sha}`;
+        
+        const lastCommitInfo = `
+
+**📝 Last Commit:**
+- **Message:** [${commitMessage}](${commitUrl})
+- **Author:** ${lastCommit.author.name}
+- **SHA:** [\`${shortSha}\`](${commitUrl})`;
+        
+        await sendMarkdownMessage(statusMessage + lastCommitInfo, sendMessage);
+      } else {
+        await sendMarkdownMessage(statusMessage, sendMessage);
+      }
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      if (errorMessage.includes('Not Found') || errorMessage.includes('404')) {
+        await sendMessage(`❌ Repository not found: ${gitUrl}\\nPlease check the URL and ensure the repository exists and is accessible.`);
+      } else if (errorMessage.includes('API rate limit')) {
+        await sendMessage('❌ GitHub API rate limit exceeded. Please try again later.');
+      } else if (errorMessage.includes('token not configured')) {
+        await sendMessage('❌ GitHub token not configured. Please set the GITHUB_TOKEN environment variable to access repository statistics.');
+      } else {
+        await sendMessage(`❌ Error fetching repository statistics: ${errorMessage}`);
+      }
     }
   }
 
