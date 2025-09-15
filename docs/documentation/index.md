@@ -10,6 +10,7 @@ Welcome to the Morpheum documentation. Here you'll find everything you need to u
 
 ## Getting Started
 
+- [**Developer Onboarding**](onboarding/) - Complete guide for new team members
 - [**Getting Started Guide**](getting-started/) - Your first steps with Morpheum
 - [**Architecture Overview**](architecture/) - Understanding how Morpheum works
 - [**Contributing Guide**](contributing/) - How to contribute to the project
