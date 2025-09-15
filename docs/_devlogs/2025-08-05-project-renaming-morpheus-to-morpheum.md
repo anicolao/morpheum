@@ -1,5 +1,5 @@
 ---
-title: "Project Renaming ("Morpheus" to "Morpheum")"
+title: "Project Renaming (Morpheus to Morpheum)"
 date: 2025-08-05
 author: "Development Team"
 tags: ["development"]

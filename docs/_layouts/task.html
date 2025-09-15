@@ -1,0 +1,26 @@
+---
+layout: default
+---
+
+<article class="task">
+  <header class="task-header">
+    <h1 class="task-title">{{ page.title | escape }}</h1>
+    <div class="task-meta">
+      <span class="task-status">Status: {{ page.status | default: "unknown" }}</span>
+      {% if page.phase %}<span class="task-phase">Phase: {{ page.phase }}</span>{% endif %}
+      {% if page.date %}<span class="task-date">Date: {{ page.date | date: "%B %d, %Y" }}</span>{% endif %}
+      {% if page.assignee %}<span class="task-assignee">Assignee: {{ page.assignee }}</span>{% endif %}
+    </div>
+    {% if page.tags %}
+    <div class="task-tags">
+      {% for tag in page.tags %}
+        <span class="tag">{{ tag }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </header>
+
+  <div class="task-content">
+    {{ content }}
+  </div>
+</article>
