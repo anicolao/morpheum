@@ -828,9 +828,12 @@ ${resultSummary}
    * Handle project room creation
    */
   private async handleProjectCreate(args: string[], sendMessage: MessageSender, roomId: string, userId: string) {
+    // Normalize Unicode dashes (e.g., em dash — to double dash --) 
+    const normalizedArgs = normalizeArgsArray(args);
+    
     // Parse arguments for --new flag
-    const isNewRepository = args.includes('--new');
-    const filteredArgs = args.filter(arg => arg !== '--new');
+    const isNewRepository = normalizedArgs.includes('--new');
+    const filteredArgs = normalizedArgs.filter(arg => arg !== '--new');
 
     if (filteredArgs.length === 0) {
       await sendMessage('❌ Repository name or Git URL is required.\n\nUsage:\n- `!project create <git-url>` (for existing repositories)\n- `!project create --new <repo-name>` (to create new repository)\n\nExample: `!project create --new my-awesome-project`');
