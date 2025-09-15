@@ -338,16 +338,27 @@ function setupClientHandlers(matrixClient: MatrixClient, bot: any, tokenManager?
         const localpart = userId.split(':')[0].substring(1); // from @user:server.com -> user
 
         const mentionNames = [displayName, localpart, userId].filter(Boolean).map(n => n!.toLowerCase());
+        const lowerBody = body.toLowerCase();
 
         for (const name of mentionNames) {
-          if (body.toLowerCase().startsWith(name)) {
+          // Check for exact name match followed by a delimiter or end of string
+          if (lowerBody === name || 
+              lowerBody.startsWith(name + ' ') ||
+              lowerBody.startsWith(name + ':') ||
+              lowerBody.startsWith(name + ',') ||
+              lowerBody.startsWith(name + '\t') ||
+              lowerBody.startsWith(name + '\n')) {
             let task = body.substring(name.length).trim();
-            if (task.startsWith(':')) {
+            if (task.startsWith(':') || task.startsWith(',')) {
               task = task.substring(1).trim();
             }
             
             if (task) {
               await bot.processMessage(task, event.sender, sendMessage, roomId);
+              return;
+            } else if (lowerBody === name) {
+              // Handle case where bot is mentioned without a task
+              await bot.processMessage('!help', event.sender, sendMessage, roomId);
               return;
             }
           }
