@@ -8,7 +8,7 @@ import { execa } from "execa";
 import * as fs from "fs";
 import { formatMarkdown } from "./format-markdown";
 import { CopilotClient } from "./copilotClient";
-import { getTaskFiles, filterUncompletedTasks, assembleTasksMarkdown } from "./task-utils";
+import { getTaskFiles, filterUncompletedTasks, assembleTasksMarkdown, getTaskSummary, searchTasks } from "./task-utils";
 import * as net from "net";
 import { normalizeArgsArray } from "./dash-normalizer";
 import { ProjectRoomManager, ProjectRoomConfig, ProjectRoomCreationOptions } from "./project-room-manager";
@@ -261,6 +261,8 @@ export class MorpheumBot {
 Available commands:
 - \`!help\` - Show this help message
 - \`!tasks\` - Show current tasks
+- \`!tasks summary\` - Show task summary statistics
+- \`!tasks search <query>\` - Search tasks by keyword
 - \`!devlog\` - Show development log
 - \`!tokens\` - Show Matrix authentication token status
 - \`!token refresh\` - Manually refresh Matrix authentication token
@@ -283,12 +285,7 @@ Available commands:
 For regular tasks, just type your request without a command prefix.`;
       await sendMessage(message);
     } else if (body.startsWith("!tasks")) {
-      // Read task files from the new directory structure and show only uncompleted tasks
-      const allTasks = await getTaskFiles("docs/_tasks");
-      const uncompletedTasks = filterUncompletedTasks(allTasks);
-      const content = assembleTasksMarkdown(uncompletedTasks);
-      const html = formatMarkdown(content);
-      await sendMessage(content, html);
+      await this.handleTasksCommand(body, sendMessage);
     } else if (body.startsWith("!devlog")) {
       const content = await fs.promises.readFile("DEVLOG.md", "utf8");
       const html = formatMarkdown(content);
@@ -536,6 +533,84 @@ This room has project-specific settings that override global config for tasks:
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       await sendMessage(`Error executing Copilot command: ${errorMessage}`);
+    }
+  }
+
+  private async handleTasksCommand(body: string, sendMessage: MessageSender) {
+    const parts = body.split(' ');
+    const subcommand = parts[1];
+
+    if (!subcommand) {
+      // Default behavior - show open tasks
+      const allTasks = await getTaskFiles("docs/_tasks");
+      const uncompletedTasks = filterUncompletedTasks(allTasks);
+      const content = assembleTasksMarkdown(uncompletedTasks);
+      const html = formatMarkdown(content);
+      await sendMessage(content, html);
+      return;
+    }
+
+    switch (subcommand) {
+      case 'summary':
+        await this.handleTasksSummaryCommand(sendMessage);
+        break;
+      case 'search':
+        await this.handleTasksSearchCommand(parts.slice(2), sendMessage);
+        break;
+      default:
+        await sendPlainTextMessage(
+          'Unknown tasks subcommand. Available: summary, search',
+          sendMessage
+        );
+    }
+  }
+
+  private async handleTasksSummaryCommand(sendMessage: MessageSender): Promise<void> {
+    try {
+      const summary = await getTaskSummary("docs/_tasks");
+      
+      const summaryText = `📊 **Project Summary**\n\n` +
+        `• **Open Tasks:** ${summary.totalOpen}\n` +
+        `• **Completed Tasks:** ${summary.totalCompleted}\n` +
+        `• **Active Phases:** ${Object.keys(summary.byPhase).length}\n\n` +
+        `**By Phase:**\n` +
+        Object.entries(summary.byPhase)
+          .map(([phase, count]) => `  • ${phase}: ${count} tasks`)
+          .join('\n') +
+        `\n\n[View Full Dashboard](https://anicolao.github.io/morpheum/status/tasks/)`;
+      
+      await sendMarkdownMessage(summaryText, sendMessage);
+    } catch (error) {
+      await sendPlainTextMessage('Error retrieving task summary.', sendMessage);
+    }
+  }
+
+  private async handleTasksSearchCommand(args: string[], sendMessage: MessageSender): Promise<void> {
+    if (args.length === 0) {
+      await sendPlainTextMessage('Usage: !tasks search <query>', sendMessage);
+      return;
+    }
+    
+    const query = args.join(' ');
+    
+    try {
+      const results = await searchTasks(query, { status: ['open', 'in-progress'] });
+      
+      if (results.length === 0) {
+        await sendMarkdownMessage(`🔍 **Search Results**\n\nNo tasks found matching "${query}"`, sendMessage);
+        return;
+      }
+      
+      const resultText = `🔍 **Search Results** (${results.length} found)\n\n` +
+        results.slice(0, 5).map((task, index) => 
+          `${index + 1}. **${task.title}** (${task.status})\n   Phase: ${task.phase || 'None'}`
+        ).join('\n\n') +
+        (results.length > 5 ? `\n\n... and ${results.length - 5} more results` : '') +
+        `\n\n[View All Results](https://anicolao.github.io/morpheum/status/tasks/)`;
+      
+      await sendMarkdownMessage(resultText, sendMessage);
+    } catch (error) {
+      await sendPlainTextMessage('Error searching tasks.', sendMessage);
     }
   }
 

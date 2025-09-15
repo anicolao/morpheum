@@ -95,6 +95,14 @@ vi.mock('./format-markdown', () => ({
       return '<h1>Tasks</h1>\n<p>This file tracks the current and upcoming tasks for the Morpheum project.</p>\n';
     } else if (content.startsWith('# DEVLOG')) {
       return '<h1>DEVLOG</h1>\n<h2>Morpheum Development Log</h2>\n<p>This log tracks the development of morpheum.</p>\n';
+    } else if (content.includes('📊 **Project Summary**')) {
+      return '<p>📊 <strong>Project Summary</strong></p>\n<p>• <strong>Open Tasks:</strong> 1</p>\n<p>• <strong>Completed Tasks:</strong> 0</p>';
+    } else if (content.includes('🔍 **Search Results**')) {
+      if (content.includes('No tasks found')) {
+        return '<p>🔍 <strong>Search Results</strong></p>\n<p>No tasks found matching query</p>';
+      } else {
+        return '<p>🔍 <strong>Search Results</strong></p>\n<p>1 found</p>';
+      }
     } else if (content.includes('🏆 **Gauntlet - AI Model Evaluation**')) {
       return '<p>🏆 <strong>Gauntlet - AI Model Evaluation</strong></p>\n<p><strong>Usage:</strong></p>\n<ul>\n<li><code>!gauntlet run --model &lt;model&gt;</code> - Run gauntlet evaluation</li>\n</ul>\n<p><strong>Options:</strong></p>\n<p><code>--model &lt;model&gt;</code> - Required. The model name to evaluate</p>\n<p>⚠️ <strong>Note:</strong> Gauntlet only works with OpenAI and Ollama providers, not Copilot.</p>';
     } else if (content.includes('📋 **Available Gauntlet Tasks:**')) {
@@ -361,6 +369,50 @@ Job's done! The program has been created successfully.
         expect.stringContaining('# DEVLOG'),
         expect.stringContaining('<h1>DEVLOG</h1>')
       );
+    });
+
+    it('should show task summary with statistics', async () => {
+      await bot.processMessage('!tasks summary', 'user', mockSendMessage);
+      
+      // Verify the summary content
+      const [markdown, html] = mockSendMessage.mock.calls[0];
+      expect(markdown).toContain('📊 **Project Summary**');
+      expect(markdown).toContain('• **Open Tasks:** 1');
+      expect(markdown).toContain('• **Completed Tasks:** 0');
+      expect(markdown).toContain('**By Phase:**');
+      expect(markdown).toContain('View Full Dashboard');
+      
+      // Verify HTML formatting
+      expect(html).toContain('<strong>Project Summary</strong>');
+    });
+
+    it('should search tasks by query', async () => {
+      await bot.processMessage('!tasks search Restructure', 'user', mockSendMessage);
+      
+      // Verify the search results
+      const [markdown, html] = mockSendMessage.mock.calls[0];
+      expect(markdown).toContain('🔍 **Search Results**');
+      expect(markdown).toContain('1 found');
+      expect(markdown).toContain('Restructure TASKS.md');
+      expect(markdown).toContain('(in-progress)');
+      
+      // Verify HTML formatting
+      expect(html).toContain('<strong>Search Results</strong>');
+    });
+
+    it('should show no results for tasks search with no matches', async () => {
+      await bot.processMessage('!tasks search nonexistent', 'user', mockSendMessage);
+      
+      const [markdown] = mockSendMessage.mock.calls[0];
+      expect(markdown).toContain('🔍 **Search Results**');
+      expect(markdown).toContain('No tasks found matching "nonexistent"');
+    });
+
+    it('should show usage help for tasks search without query', async () => {
+      await bot.processMessage('!tasks search', 'user', mockSendMessage);
+      
+      const [message] = mockSendMessage.mock.calls[0];
+      expect(message).toBe('Usage: !tasks search <query>');
     });
   });
 

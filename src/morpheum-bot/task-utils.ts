@@ -11,6 +11,14 @@ export interface TaskMetadata {
   filename: string;
 }
 
+export interface TaskSummary {
+  totalOpen: number;
+  totalCompleted: number;
+  byPhase: Record<string, number>;
+  byCategory: Record<string, number>;
+  recentlyUpdated: TaskMetadata[];
+}
+
 /**
  * Simple front matter parser for task files
  */
@@ -152,4 +160,93 @@ export function assembleTasksMarkdown(tasks: TaskMetadata[]): string {
   }
   
   return markdown.trim();
+}
+
+/**
+ * Get a summary of task statistics
+ */
+export async function getTaskSummary(tasksDir: string = "docs/_tasks"): Promise<TaskSummary> {
+  const tasks = await getTaskFiles(tasksDir);
+  const openTasks = filterUncompletedTasks(tasks);
+  const completedTasks = tasks.filter(t => t.status === 'completed');
+  
+  return {
+    totalOpen: openTasks.length,
+    totalCompleted: completedTasks.length,
+    byPhase: groupTasksByPhase(openTasks),
+    byCategory: groupTasksByCategory(openTasks),
+    recentlyUpdated: getRecentlyUpdatedTasks(tasks, 7) // Last 7 days
+  };
+}
+
+/**
+ * Group tasks by phase
+ */
+function groupTasksByPhase(tasks: TaskMetadata[]): Record<string, number> {
+  const grouped: Record<string, number> = {};
+  
+  for (const task of tasks) {
+    const phase = task.phase || 'Other';
+    grouped[phase] = (grouped[phase] || 0) + 1;
+  }
+  
+  return grouped;
+}
+
+/**
+ * Group tasks by category
+ */
+function groupTasksByCategory(tasks: TaskMetadata[]): Record<string, number> {
+  const grouped: Record<string, number> = {};
+  
+  for (const task of tasks) {
+    const category = task.category || 'Other';
+    grouped[category] = (grouped[category] || 0) + 1;
+  }
+  
+  return grouped;
+}
+
+/**
+ * Get recently updated tasks (stub implementation)
+ */
+function getRecentlyUpdatedTasks(tasks: TaskMetadata[], days: number): TaskMetadata[] {
+  // For now, just return the most recent 5 tasks by order number
+  // In a real implementation, we'd check file modification times
+  return tasks
+    .filter(t => t.order !== undefined)
+    .sort((a, b) => (b.order || 0) - (a.order || 0))
+    .slice(0, 5);
+}
+
+/**
+ * Search tasks by query and filters
+ */
+export async function searchTasks(query: string, filters?: {
+  status?: string[];
+  phase?: string[];
+  category?: string[];
+}, tasksDir: string = "docs/_tasks"): Promise<TaskMetadata[]> {
+  const tasks = await getTaskFiles(tasksDir);
+  
+  return tasks.filter(task => {
+    // Text search in title and content
+    const matchesQuery = !query || 
+      task.title.toLowerCase().includes(query.toLowerCase()) ||
+      task.content.toLowerCase().includes(query.toLowerCase());
+    
+    // Filter by status
+    const matchesStatus = !filters?.status || 
+      filters.status.includes(task.status);
+    
+    // Filter by phase  
+    const matchesPhase = !filters?.phase || 
+      filters.phase.includes(task.phase || '');
+    
+    // Filter by category
+    const matchesCategory = !filters?.category || 
+      filters.category.includes(task.category || '');
+    
+    return matchesQuery && matchesStatus && matchesPhase && matchesCategory;
+  });
 }

@@ -421,3 +421,183 @@ table th {
     color: black;
   }
 }
+
+/* Task Dashboard Styles - Academic Theme */
+.task-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+
+.stat-card {
+  background: var(--background-subtle);
+  padding: 1.5rem;
+  border-radius: 4px;
+  text-align: center;
+  border: 1px solid var(--border-light);
+  transition: border-color 0.2s ease;
+}
+
+.stat-card:hover {
+  border-color: var(--border-medium);
+}
+
+.stat-card h3 {
+  font-size: 2.5rem;
+  margin: 0;
+  color: var(--accent-primary);
+  font-weight: 600;
+  font-family: 'Inter', sans-serif;
+}
+
+.stat-card p {
+  margin: 0.5rem 0 0 0;
+  color: var(--text-secondary);
+  font-weight: 500;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.025rem;
+}
+
+.task-controls {
+  display: flex;
+  gap: 1rem;
+  margin: 2rem 0;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.task-controls input,
+.task-controls select {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-medium);
+  border-radius: 4px;
+  background: var(--background);
+  color: var(--text-primary);
+  font-family: 'Inter', sans-serif;
+  font-size: 0.9rem;
+}
+
+.task-controls input:focus,
+.task-controls select:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(46, 93, 62, 0.1);
+}
+
+.task-card {
+  background: var(--background-subtle);
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-light);
+  transition: border-color 0.2s ease;
+}
+
+.task-card:hover {
+  border-color: var(--border-medium);
+}
+
+.task-card h3 {
+  color: var(--accent-secondary);
+  margin-top: 0;
+  margin-bottom: 1rem;
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.task-meta {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1rem 0;
+  flex-wrap: wrap;
+}
+
+.task-card .status-badge {
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.025rem;
+}
+
+.status-open {
+  background-color: rgba(27, 74, 115, 0.1);
+  color: var(--accent-secondary);
+  border: 1px solid var(--accent-secondary);
+}
+
+.status-completed {
+  background-color: rgba(46, 93, 62, 0.1);
+  color: var(--accent-primary);
+  border: 1px solid var(--accent-primary);
+}
+
+.phase-badge,
+.category-badge {
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  background-color: rgba(119, 119, 119, 0.1);
+  color: var(--text-muted);
+  border: 1px solid var(--border-medium);
+}
+
+.task-content {
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 1rem 0;
+}
+
+.task-link {
+  color: var(--accent-primary);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.task-link:hover {
+  color: var(--accent-secondary);
+  border-bottom-color: var(--accent-secondary);
+}
+
+.results-count {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-bottom: 1rem;
+  font-style: italic;
+}
+
+.no-results {
+  text-align: center;
+  padding: 2rem;
+  color: var(--text-muted);
+  font-style: italic;
+  background: var(--background-subtle);
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  margin: 1rem 0;
+}
+
+/* Responsive task dashboard */
+@media screen and (max-width: 600px) {
+  .task-stats {
+    grid-template-columns: 1fr;
+  }
+  
+  .task-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .task-controls input,
+  .task-controls select {
+    width: 100%;
+  }
+  
+  .stat-card h3 {
+    font-size: 2rem;
+  }
+}
