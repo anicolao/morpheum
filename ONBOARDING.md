@@ -121,15 +121,21 @@ Morpheum uses **direnv** and **Nix** to automatically set up your development en
    Before allowing direnv, create your secrets file:
    ```bash
    # Create .secrets file with your Matrix and GitHub credentials
-   cp << 'EOF' > .secrets
+   cat << 'EOF' > .secrets
    # Matrix Bot Configuration
+   # Create a bot account on matrix.org for testing (eventually you may want your own homeserver)
+   # 1. Go to https://app.element.io and click "Create Account"
+   # 2. Choose a bot username like "myname-morpheum-bot" 
+   # 3. Complete registration and note the username/password below
    export HOMESERVER_URL="https://matrix.org"
    export MATRIX_USERNAME="your-bot-username"
    export MATRIX_PASSWORD="your-bot-password"
    # Or alternatively use an access token:
    # export ACCESS_TOKEN="your-matrix-access-token"
 
-   # GitHub Configuration (optional, for advanced bot features)
+   # GitHub Configuration (required for development)
+   # Create a personal access token at https://github.com/settings/tokens
+   # Select "repo" scope for full repository access
    export GITHUB_TOKEN="your-github-personal-access-token"
 
    # Registration tokens for different homeservers (if registering bots)
@@ -138,8 +144,10 @@ Morpheum uses **direnv** and **Nix** to automatically set up your development en
    ```
    
    **Edit the `.secrets` file** with your actual credentials:
-   - Matrix username/password or access token from your Matrix account
-   - GitHub personal access token (optional, but recommended for full functionality)
+   - **Matrix bot credentials**: Create a new Matrix account specifically for bot testing (your personal Matrix account username/password, or an access token from your account)
+   - **GitHub personal access token**: Required for full functionality - create at [GitHub Settings → Tokens](https://github.com/settings/tokens) with "repo" scope
+
+   If you modify the `.secrets` file later, re-enter the directory to reload the environment variables.
 
 3. **Allow direnv and activate environment:**
    ```bash
@@ -153,7 +161,7 @@ Morpheum uses **direnv** and **Nix** to automatically set up your development en
 
 4. **Install project dependencies:**
    ```bash
-   bun install  # now available via Nix
+   npm install  # Note: npm is required for matrix package compatibility
    ```
 
 5. **Run tests:**
@@ -161,13 +169,24 @@ Morpheum uses **direnv** and **Nix** to automatically set up your development en
    bun test
    ```
 
+6. **Test the bot (optional but recommended):**
+   ```bash
+   # Start the bot locally
+   bun run start
+   ```
+   
+   Then invite your bot to a project room to test its functionality:
+   - Use your Matrix client to invite the bot account to a room
+   - Try typing `!help` to see available commands
+   - Test basic bot interactions
+
 ### Understanding the Codebase
 - **Main bot code**: `src/morpheum-bot/`
 - **Documentation**: `docs/` (Jekyll-based site)
 - **Tests**: Throughout the codebase with `.test.ts` extensions
 - **Configuration**: `package.json`, `tsconfig.json`, `vitest.config.ts`
 
-## Step 6: Contributing to the Project
+## Step 7: Contributing to the Project
 
 ### Matrix-First Workflow
 Morpheum uses a unique Matrix-centric development workflow:
