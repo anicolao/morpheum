@@ -251,16 +251,44 @@ export const BOT_COMMANDS = {
   // Existing
   '!tasks': 'Show open tasks',
   
-  // New commands
-  '!summary': 'Show task summary statistics',
-  '!search <query>': 'Search tasks by keyword',
-  '!add-task <title>': 'Create a new task',
-  '!task-status <number>': 'Get status of specific task',
-  '!recent': 'Show recently updated tasks'
+  // New sub-commands under !tasks
+  '!tasks summary': 'Show task summary statistics',
+  '!tasks search <query>': 'Search tasks by keyword',
+  '!tasks add <title>': 'Create a new task',
+  '!tasks show <number>': 'Get details of specific task',
+  '!tasks recent': 'Show recently updated tasks'
 };
 
 // Implementation
-async function handleSummaryCommand(sendMessage: MessageSender): Promise<void> {
+async function handleTasksCommand(args: string[], sendMessage: MessageSender): Promise<void> {
+  if (args.length === 0) {
+    // Default behavior - show open tasks
+    return handleShowTasksCommand(sendMessage);
+  }
+  
+  const subcommand = args[0];
+  const subArgs = args.slice(1);
+  
+  switch (subcommand) {
+    case 'summary':
+      return handleTasksSummaryCommand(sendMessage);
+    case 'search':
+      return handleTasksSearchCommand(subArgs, sendMessage);
+    case 'add':
+      return handleTasksAddCommand(subArgs, sendMessage);
+    case 'show':
+      return handleTasksShowCommand(subArgs, sendMessage);
+    case 'recent':
+      return handleTasksRecentCommand(sendMessage);
+    default:
+      await sendPlainTextMessage(
+        'Unknown tasks subcommand. Available: summary, search, add, show, recent',
+        sendMessage
+      );
+  }
+}
+
+async function handleTasksSummaryCommand(sendMessage: MessageSender): Promise<void> {
   try {
     const summary = await getTaskSummary();
     
@@ -280,13 +308,42 @@ async function handleSummaryCommand(sendMessage: MessageSender): Promise<void> {
   }
 }
 
-async function handleAddTaskCommand(args: string[], sendMessage: MessageSender): Promise<void> {
-  if (args.length < 2) {
-    await sendPlainTextMessage('Usage: !add-task <title>', sendMessage);
+async function handleTasksSearchCommand(args: string[], sendMessage: MessageSender): Promise<void> {
+  if (args.length === 0) {
+    await sendPlainTextMessage('Usage: !tasks search <query>', sendMessage);
     return;
   }
   
-  const title = args.slice(1).join(' ');
+  const query = args.join(' ');
+  
+  try {
+    const results = await searchTasks(query, { status: ['open'] });
+    
+    if (results.length === 0) {
+      await sendMarkdownMessage(`🔍 **Search Results**\n\nNo tasks found matching "${query}"`, sendMessage);
+      return;
+    }
+    
+    const resultText = `🔍 **Search Results** (${results.length} found)\n\n` +
+      results.slice(0, 5).map((task, index) => 
+        `${index + 1}. **${task.title}** (${task.status})\n   Phase: ${task.phase || 'None'}`
+      ).join('\n\n') +
+      (results.length > 5 ? `\n\n... and ${results.length - 5} more results` : '') +
+      `\n\n[View All Results](https://anicolao.github.io/morpheum/status/search/?q=${encodeURIComponent(query)})`;
+    
+    await sendMarkdownMessage(resultText, sendMessage);
+  } catch (error) {
+    await sendPlainTextMessage('Error searching tasks.', sendMessage);
+  }
+}
+
+async function handleTasksAddCommand(args: string[], sendMessage: MessageSender): Promise<void> {
+  if (args.length === 0) {
+    await sendPlainTextMessage('Usage: !tasks add <title>', sendMessage);
+    return;
+  }
+  
+  const title = args.join(' ');
   const taskNumber = await getNextTaskNumber();
   const filename = `task-${taskNumber.toString().padStart(3, '0')}-${title.toLowerCase().replace(/\s+/g, '-')}.md`;
   
@@ -313,6 +370,63 @@ category: "User Created"
     );
   } catch (error) {
     await sendPlainTextMessage(`Error creating task: ${error.message}`, sendMessage);
+  }
+}
+
+async function handleTasksShowCommand(args: string[], sendMessage: MessageSender): Promise<void> {
+  if (args.length === 0) {
+    await sendPlainTextMessage('Usage: !tasks show <number>', sendMessage);
+    return;
+  }
+  
+  const taskNumber = parseInt(args[0]);
+  if (isNaN(taskNumber)) {
+    await sendPlainTextMessage('Task number must be a valid number.', sendMessage);
+    return;
+  }
+  
+  try {
+    const tasks = await getTaskFiles();
+    const task = tasks.find(t => t.order === taskNumber);
+    
+    if (!task) {
+      await sendMarkdownMessage(`❌ **Task Not Found**\n\nNo task found with number ${taskNumber}`, sendMessage);
+      return;
+    }
+    
+    const taskText = `📋 **Task ${taskNumber}**\n\n` +
+      `**Title:** ${task.title}\n` +
+      `**Status:** ${task.status}\n` +
+      `**Phase:** ${task.phase || 'None'}\n` +
+      `**Category:** ${task.category || 'None'}\n\n` +
+      `**Description:**\n${task.content.substring(0, 500)}${task.content.length > 500 ? '...' : ''}\n\n` +
+      `[View Full Task](https://anicolao.github.io/morpheum/status/tasks/#task-${taskNumber})`;
+    
+    await sendMarkdownMessage(taskText, sendMessage);
+  } catch (error) {
+    await sendPlainTextMessage('Error retrieving task details.', sendMessage);
+  }
+}
+
+async function handleTasksRecentCommand(sendMessage: MessageSender): Promise<void> {
+  try {
+    const summary = await getTaskSummary();
+    
+    if (summary.recentlyUpdated.length === 0) {
+      await sendMarkdownMessage(`📅 **Recently Updated Tasks**\n\nNo tasks updated in the last 7 days.`, sendMessage);
+      return;
+    }
+    
+    const recentText = `📅 **Recently Updated Tasks** (${summary.recentlyUpdated.length} in last 7 days)\n\n` +
+      summary.recentlyUpdated.slice(0, 5).map((task, index) => 
+        `${index + 1}. **${task.title}** (${task.status})\n   Phase: ${task.phase || 'None'}`
+      ).join('\n\n') +
+      (summary.recentlyUpdated.length > 5 ? `\n\n... and ${summary.recentlyUpdated.length - 5} more` : '') +
+      `\n\n[View All Tasks](https://anicolao.github.io/morpheum/status/tasks/)`;
+    
+    await sendMarkdownMessage(recentText, sendMessage);
+  } catch (error) {
+    await sendPlainTextMessage('Error retrieving recent tasks.', sendMessage);
   }
 }
 ```
@@ -583,10 +697,11 @@ fi
   - Implement basic CSS styling for task interface
 
 - [ ] **Matrix Bot Command Extensions**
-  - Add `!summary` command for task statistics
-  - Implement `!search <query>` functionality  
-  - Create `!add-task <title>` command
-  - Add `!recent` command for recently updated tasks
+  - Add `!tasks summary` command for task statistics
+  - Implement `!tasks search <query>` functionality  
+  - Create `!tasks add <title>` command
+  - Add `!tasks show <number>` command for task details
+  - Add `!tasks recent` command for recently updated tasks
 
 ### Phase 2: Enhanced Features (Week 3-4)
 - [ ] **Advanced Search Capabilities**
