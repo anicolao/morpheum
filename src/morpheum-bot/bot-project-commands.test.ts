@@ -65,6 +65,31 @@ describe('MorpheumBot Project Commands', () => {
       );
     });
 
+    // NEW TESTS FOR ISSUE #154
+    it('should provide helpful message when Git URL is passed to --new flag (owner/repo format)', async () => {
+      await bot.processMessage('!project create --new anicolao/tabletop-image', '@user:example.com', mockSendMessage, '!room:example.com');
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.stringMatching(/It looks like you provided a Git URL.*!project create anicolao\/tabletop-image.*!project create --new tabletop-image/s)
+      );
+    });
+
+    it('should provide helpful message when Git URL is passed to --new flag (SSH format)', async () => {
+      await bot.processMessage('!project create --new git@github.com:anicolao/tabletop-image', '@user:example.com', mockSendMessage, '!room:example.com');
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.stringMatching(/It looks like you provided a Git URL.*!project create git@github\.com:anicolao\/tabletop-image.*!project create --new tabletop-image/s)
+      );
+    });
+
+    it('should provide improved error message for invalid repository names', async () => {
+      await bot.processMessage('!project create --new invalid@repo', '@user:example.com', mockSendMessage, '!room:example.com');
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.stringMatching(/Invalid repository name for new repository creation.*For creating new repositories.*For existing repositories/s)
+      );
+    });
+
     it('should show help for unknown subcommands', async () => {
       await bot.processMessage('!project unknown', '@user:example.com', mockSendMessage, '!room:example.com');
 
