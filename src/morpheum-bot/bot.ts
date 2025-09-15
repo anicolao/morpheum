@@ -12,6 +12,7 @@ import { getTaskFiles, filterUncompletedTasks, assembleTasksMarkdown, getTaskSum
 import * as net from "net";
 import { normalizeArgsArray } from "./dash-normalizer";
 import { ProjectRoomManager, ProjectRoomConfig, ProjectRoomCreationOptions } from "./project-room-manager";
+import { parseGitUrl } from "./git-url-parser";
 import { MatrixClient } from "matrix-bot-sdk";
 
 type MessageSender = (message: string, html?: string) => Promise<void>;
@@ -843,9 +844,29 @@ ${resultSummary}
     if (isNewRepository) {
       const repoName = gitUrl;
       
-      // Validate repository name
+      // Check if user passed a Git URL instead of just a repository name
+      if (repoName.includes('/') || repoName.includes('@') || repoName.includes(':')) {
+        // Try to parse as Git URL to see if it's a valid Git URL format
+        try {
+          const gitInfo = parseGitUrl(repoName);
+          await sendMessage(`❌ It looks like you provided a Git URL for an existing repository: "${repoName}"
+
+**For existing repositories, use:**
+\`!project create ${repoName}\`
+
+**For creating new repositories, use:**
+\`!project create --new ${gitInfo.repo}\`
+
+The \`--new\` flag creates a new repository under your GitHub account, so you only need to specify the repository name (e.g., "${gitInfo.repo}").`);
+          return;
+        } catch (error) {
+          // If it's not a valid Git URL, fall through to the general validation error
+        }
+      }
+      
+      // Validate repository name for new repository creation
       if (!/^[a-zA-Z0-9._-]+$/.test(repoName)) {
-        await sendMessage('❌ Invalid repository name. Repository names can only contain alphanumeric characters, dots, hyphens, and underscores.');
+        await sendMessage('Invalid repository name for new repository creation.\n\nFor creating new repositories:\nRepository names can only contain alphanumeric characters, dots, hyphens, and underscores.\nExample: !project create --new my-awesome-project\n\nFor existing repositories:\nUse !project create <git-url> instead.\nSupported formats: owner/repo, git@github.com:owner/repo, https://github.com/owner/repo');
         return;
       }
 
