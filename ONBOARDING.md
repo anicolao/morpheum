@@ -113,7 +113,7 @@ Morpheum uses **direnv** and **Nix** to automatically set up your development en
 
 2. **Set up environment secrets:**
    
-   When you first enter the directory, direnv will prompt you to allow the environment. This is expected:
+   When you first enter the directory, direnv will prompt you to allow the environment. For now, ignore the following error, which is expected:
    ```bash
    # You'll see: direnv: error .envrc is blocked. Run `direnv allow` to approve its content
    ```
@@ -172,7 +172,7 @@ Morpheum uses **direnv** and **Nix** to automatically set up your development en
 6. **Test the bot (optional but recommended):**
    ```bash
    # Start the bot locally
-   bun run start
+   bun src/morpheum-bot/index.ts
    ```
    
    Then invite your bot to a project room to test its functionality:
@@ -252,7 +252,7 @@ The project uses a directory-based system to avoid merge conflicts:
 ### Development Security
 - Never commit secrets to the repository
 - Use environment variables for sensitive data
-- Follow the project's security guidelines in CONTRIBUTING.md
+- Follow the project's security guidelines in [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ### Communication Etiquette
 - Be respectful and constructive in all communications
@@ -264,7 +264,7 @@ The project uses a directory-based system to avoid merge conflicts:
 
 1. **Complete all setup steps above**
 2. **Introduce yourself** in the main Matrix room
-3. **Read the key documentation** (VISION, ARCHITECTURE, CONTRIBUTING)
+3. **Read the key documentation** ([VISION.md](VISION.md), [ARCHITECTURE.md](ARCHITECTURE.md), [CONTRIBUTING.md](CONTRIBUTING.md))
 4. **Explore the codebase** and run tests locally
 5. **Find a small task** to start contributing
 6. **Ask questions** - the team is here to help!
