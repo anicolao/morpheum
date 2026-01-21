@@ -104,7 +104,7 @@ vi.mock('./format-markdown', () => ({
         return '<p>🔍 <strong>Search Results</strong></p>\n<p>1 found</p>';
       }
     } else if (content.includes('🏆 **Gauntlet - AI Model Evaluation**')) {
-      return '<p>🏆 <strong>Gauntlet - AI Model Evaluation</strong></p>\n<p><strong>Usage:</strong></p>\n<ul>\n<li><code>!gauntlet run --model &lt;model&gt;</code> - Run gauntlet evaluation</li>\n</ul>\n<p><strong>Options:</strong></p>\n<p><code>--model &lt;model&gt;</code> - Required. The model name to evaluate</p>\n<p>⚠️ <strong>Note:</strong> Gauntlet only works with OpenAI and Ollama providers, not Copilot.</p>';
+      return '<p>🏆 <strong>Gauntlet - AI Model Evaluation</strong></p>\n<p><strong>Usage:</strong></p>\n<ul>\n<li><code>!gauntlet run [--model &lt;model&gt;] [--provider &lt;openai|ollama|gemini&gt;] [--task &lt;task&gt;] [--verbose]</code> - Run gauntlet evaluation</li>\n</ul>\n<p><strong>Options:</strong></p>\n<p><code>--model &lt;model&gt;</code> - Optional. The model name to evaluate</p>\n<p>⚠️ <strong>Note:</strong> Gauntlet works with OpenAI, Ollama, and Gemini providers, not Copilot.</p>';
     } else if (content.includes('📋 **Available Gauntlet Tasks:**')) {
       return '<p>📋 <strong>Available Gauntlet Tasks:</strong></p>\n<p><strong>Environment Management &amp; Tooling:</strong></p>\n<ul>\n<li><code>add-jq</code> (Easy) - Add jq tool for JSON parsing</li>\n</ul>\n<p><strong>Software Development &amp; Refinement:</strong></p>\n<ul>\n<li><code>hello-world-server</code> (Easy) - Create simple web server</li>\n</ul>';
     }
@@ -228,7 +228,7 @@ describe('MorpheumBot', () => {
       await bot.processMessage('!llm switch invalid', 'user', mockSendMessage);
       
       expect(mockSendMessage).toHaveBeenCalledWith(
-        expect.stringContaining('Usage: !llm switch <openai|ollama|copilot>')
+        expect.stringContaining('Usage: !llm switch <openai|ollama|gemini|copilot>')
       );
     });
 
@@ -430,11 +430,11 @@ Job's done! The program has been created successfully.
       // First parameter should be the markdown
       expect(call[0]).toContain('🏆 **Gauntlet - AI Model Evaluation**');
       expect(call[0]).toContain('**Usage:**');
-      expect(call[0]).toContain('`!gauntlet run --model <model> [--provider <openai|ollama>] [--task <task>] [--verbose]`');
+      expect(call[0]).toContain('`!gauntlet run [--model <model>] [--provider <openai|ollama|gemini>] [--task <task>] [--verbose]`');
       
       // Second parameter should be HTML
       expect(call[1]).toContain('<strong>Gauntlet - AI Model Evaluation</strong>');
-      expect(call[1]).toContain('<code>!gauntlet run --model');
+      expect(call[1]).toContain('<code>!gauntlet run [--model');
     });
 
     it('should show gauntlet list with formatted markdown', async () => {

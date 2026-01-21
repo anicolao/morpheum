@@ -1,4 +1,5 @@
 import { type LLMMetrics, MetricsTracker } from './metrics';
+import { OAuthManager } from './oauth/manager';
 
 /**
  * Common interface for LLM clients (OpenAI, Ollama, etc.)
@@ -35,11 +36,12 @@ export interface LLMClient {
  * Configuration for different LLM providers
  */
 export interface LLMConfig {
-  provider: 'openai' | 'ollama' | 'copilot';
+  provider: 'openai' | 'ollama' | 'copilot' | 'gemini';
   apiKey?: string;
   model?: string;
   baseUrl?: string;
   repository?: string; // New field for GitHub repo (required for copilot)
+  oauthManager?: OAuthManager;
 }
 
 /**
@@ -77,6 +79,17 @@ export async function createLLMClient(config: LLMConfig): Promise<LLMClient> {
         config.apiKey,
         config.repository,
         config.baseUrl || 'https://api.github.com'
+      );
+
+    case 'gemini':
+      const { GeminiClient } = await import('./geminiClient');
+      if (!config.apiKey && !config.oauthManager) {
+        throw new Error('Gemini API key or OAuth manager is required');
+      }
+      return new GeminiClient(
+        config.apiKey ? { apiKey: config.apiKey } : { oauthManager: config.oauthManager },
+        config.model || 'gemini-3-pro-preview',
+        config.baseUrl || 'https://generativelanguage.googleapis.com/v1beta'
       );
     
     default:

@@ -36,3 +36,4 @@ Human developers are always in control. They can review, modify, and approve the
 - [**Vision Document**](vision/) - The long-term vision for Morpheum
 - [**API Reference**](api/) - Technical documentation for developers
 - [**Agent Guidelines**](agents/) - Guidelines for AI agent behavior
+- [**OAuth Support**](oauth-support/) - OAuth setup details for LLM providers

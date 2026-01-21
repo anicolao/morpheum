@@ -58,7 +58,7 @@ The implementation leverages:
 
 The complete technical specification is available in the repository:
 
-{% include_relative ../../../PROJECT_ROOMS.md %}
+{% include PROJECT_ROOMS.md %}
 
 ## Community Feedback
 

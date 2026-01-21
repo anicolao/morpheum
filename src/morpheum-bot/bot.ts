@@ -1,19 +1,18 @@
 import { SWEAgent } from "./sweAgent";
-import { OllamaClient } from "./ollamaClient";
-import { OpenAIClient } from "./openai";
 import { JailClient } from "./jailClient";
 import { type LLMClient, type LLMConfig, createLLMClient } from "./llmClient";
 import { TokenManager } from "./token-manager";
 import { execa } from "execa";
 import * as fs from "fs";
 import { formatMarkdown } from "./format-markdown";
-import { CopilotClient } from "./copilotClient";
+import type { CopilotClient } from "./copilotClient";
 import { getTaskFiles, filterUncompletedTasks, assembleTasksMarkdown, getTaskSummary, searchTasks } from "./task-utils";
 import * as net from "net";
 import { normalizeArgsArray } from "./dash-normalizer";
 import { ProjectRoomManager, ProjectRoomConfig, ProjectRoomCreationOptions } from "./project-room-manager";
 import { parseGitUrl } from "./git-url-parser";
 import { MatrixClient } from "matrix-bot-sdk";
+import { OAuthManager } from "./oauth/manager";
 
 type MessageSender = (message: string, html?: string) => Promise<void>;
 
@@ -53,19 +52,23 @@ function sendMarkdownMessage(markdown: string, sendMessage: MessageSender): Prom
 }
 
 export class MorpheumBot {
-  private sweAgent: SWEAgent;
+  private sweAgent?: SWEAgent;
+  private sweAgentClient?: LLMClient;
   private tokenManager?: TokenManager;
   private matrixClient?: MatrixClient;
   private projectRoomManager?: ProjectRoomManager;
   private debugMode: boolean;
 
-  private currentLLMClient: LLMClient;
-  private currentLLMProvider: 'openai' | 'ollama' | 'copilot';
+  private currentLLMClient?: LLMClient;
+  private currentLLMClientPromise?: Promise<LLMClient>;
+  private currentLLMProvider: 'openai' | 'ollama' | 'copilot' | 'gemini';
   private llmConfig: {
     openai: { apiKey?: string; model: string; baseUrl: string };
     ollama: { model: string; baseUrl: string };
+    gemini: { apiKey?: string; model: string; baseUrl: string };
     copilot: { apiKey?: string; repository?: string; baseUrl: string; pollInterval: string };
   };
+  private jailClient: JailClient;
   
   // Per-room configurations for project rooms
   private roomConfigs: Map<string, ProjectRoomConfig> = new Map();
@@ -81,6 +84,14 @@ export class MorpheumBot {
     };
     if (process.env.OPENAI_API_KEY) {
       openaiConfig.apiKey = process.env.OPENAI_API_KEY;
+    }
+
+    const geminiConfig: { apiKey?: string; model: string; baseUrl: string } = {
+      model: process.env.GEMINI_MODEL || 'gemini-3-pro-preview',
+      baseUrl: process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta',
+    };
+    if (process.env.GEMINI_API_KEY) {
+      geminiConfig.apiKey = process.env.GEMINI_API_KEY;
     }
 
     const copilotConfig: { apiKey?: string; repository?: string; baseUrl: string; pollInterval: string } = {
@@ -100,19 +111,16 @@ export class MorpheumBot {
         model: process.env.OLLAMA_MODEL || 'morpheum-local',
         baseUrl: process.env.OLLAMA_API_URL || 'http://localhost:11434',
       },
+      gemini: geminiConfig,
       copilot: copilotConfig,
     };
 
     // Default to Ollama if no OpenAI key is provided
     this.currentLLMProvider = this.llmConfig.openai.apiKey ? 'openai' : 'ollama';
     
-    // Initialize clients - this will be created lazily when needed
-    this.currentLLMClient = this.createCurrentLLMClient();
-    
     const jailHost = process.env.JAIL_HOST || "localhost";
     const jailPort = parseInt(process.env.JAIL_PORT || "10001", 10);
-    const jailClient = new JailClient(jailHost, jailPort);
-    this.sweAgent = new SWEAgent(this.currentLLMClient, jailClient);
+    this.jailClient = new JailClient(jailHost, jailPort);
   }
 
   /**
@@ -136,11 +144,48 @@ export class MorpheumBot {
     // Ollama doesn't require an API key
   }
 
+  private getGeminiOAuthManager(): OAuthManager {
+    const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+    const scopesEnv = process.env.GOOGLE_OAUTH_SCOPES;
+    const scopes = scopesEnv
+      ? scopesEnv.split(' ').map(scope => scope.trim()).filter(Boolean)
+      : ['https://www.googleapis.com/auth/generative-language'];
+
+    if (!clientId) {
+      throw new Error('Google OAuth client ID is required. Set GOOGLE_OAUTH_CLIENT_ID environment variable.');
+    }
+
+    return new OAuthManager('gemini', {
+      clientId,
+      clientSecret,
+      scopes,
+      authEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
+      tokenEndpoint: 'https://oauth2.googleapis.com/token',
+    });
+  }
+
+  private async validateProviderAuth(provider: 'openai' | 'ollama' | 'copilot' | 'gemini'): Promise<void> {
+    if (provider === 'gemini') {
+      if (this.llmConfig.gemini.apiKey) {
+        return;
+      }
+      const manager = this.getGeminiOAuthManager();
+      const status = await manager.getStatus();
+      if (!status.hasRefreshToken && !status.hasAccessToken) {
+        throw new Error('Gemini OAuth is not configured. Run `!llm oauth gemini start` to authorize.');
+      }
+      return;
+    }
+
+    this.validateApiKey(provider as 'openai' | 'ollama' | 'copilot');
+  }
+
   /**
    * Configure the bot to use a specific model and provider for gauntlet evaluation
    */
-  public configureForGauntlet(model: string, provider: 'openai' | 'ollama') {
-    this.validateApiKey(provider);
+  public async configureForGauntlet(model: string, provider: 'openai' | 'ollama' | 'gemini') {
+    await this.validateProviderAuth(provider);
     
     if (provider === 'openai') {
       this.llmConfig.openai.model = model;
@@ -148,62 +193,71 @@ export class MorpheumBot {
     } else if (provider === 'ollama') {
       this.llmConfig.ollama.model = model;
       this.currentLLMProvider = 'ollama';
+    } else if (provider === 'gemini') {
+      this.llmConfig.gemini.model = model;
+      this.currentLLMProvider = 'gemini';
     }
     
-    // Recreate the LLM client with the new configuration
-    this.currentLLMClient = this.createCurrentLLMClient();
-    
-    // Update the SWE agent with the new LLM client but preserve the jail client
-    this.sweAgent = new SWEAgent(this.currentLLMClient, this.sweAgent.currentJailClient);
+    this.resetLLMClient();
+    await this.getSWEAgent();
   }
 
-  private createCurrentLLMClient(): LLMClient {
+  private buildLLMConfig(): LLMConfig {
     const config: LLMConfig = {
       provider: this.currentLLMProvider,
     };
 
     if (this.currentLLMProvider === 'openai') {
-      if (!this.llmConfig.openai.apiKey) {
-        throw new Error('OpenAI API key is required but not provided');
-      }
       config.apiKey = this.llmConfig.openai.apiKey;
       config.model = this.llmConfig.openai.model;
       config.baseUrl = this.llmConfig.openai.baseUrl;
     } else if (this.currentLLMProvider === 'ollama') {
       config.model = this.llmConfig.ollama.model;
       config.baseUrl = this.llmConfig.ollama.baseUrl;
+    } else if (this.currentLLMProvider === 'gemini') {
+      config.apiKey = this.llmConfig.gemini.apiKey;
+      config.model = this.llmConfig.gemini.model;
+      config.baseUrl = this.llmConfig.gemini.baseUrl;
+      if (!config.apiKey) {
+        config.oauthManager = this.getGeminiOAuthManager();
+      }
     } else if (this.currentLLMProvider === 'copilot') {
-      if (!this.llmConfig.copilot.apiKey) {
-        throw new Error('GitHub token is required but not provided');
-      }
-      if (!this.llmConfig.copilot.repository) {
-        throw new Error('Repository is required for Copilot integration');
-      }
       config.apiKey = this.llmConfig.copilot.apiKey;
       config.repository = this.llmConfig.copilot.repository;
       config.baseUrl = this.llmConfig.copilot.baseUrl;
     }
 
-    // Use the factory function, but since it's async, we need to handle this differently
-    // For now, we'll create the clients directly to maintain synchronous nature
-    if (this.currentLLMProvider === 'openai') {
-      return new OpenAIClient(
-        this.llmConfig.openai.apiKey!,
-        this.llmConfig.openai.model,
-        this.llmConfig.openai.baseUrl
-      );
-    } else if (this.currentLLMProvider === 'copilot') {
-      return new CopilotClient(
-        this.llmConfig.copilot.apiKey!,
-        this.llmConfig.copilot.repository!,
-        this.llmConfig.copilot.baseUrl
-      );
-    } else {
-      return new OllamaClient(
-        this.llmConfig.ollama.baseUrl,
-        this.llmConfig.ollama.model
-      );
+    return config;
+  }
+
+  private resetLLMClient(): void {
+    this.currentLLMClient = undefined;
+    this.currentLLMClientPromise = undefined;
+    this.sweAgent = undefined;
+    this.sweAgentClient = undefined;
+  }
+
+  private async getLLMClient(): Promise<LLMClient> {
+    if (this.currentLLMClient) {
+      return this.currentLLMClient;
     }
+
+    if (!this.currentLLMClientPromise) {
+      const config = this.buildLLMConfig();
+      this.currentLLMClientPromise = createLLMClient(config);
+    }
+
+    this.currentLLMClient = await this.currentLLMClientPromise;
+    return this.currentLLMClient;
+  }
+
+  private async getSWEAgent(): Promise<SWEAgent> {
+    const client = await this.getLLMClient();
+    if (!this.sweAgent || this.sweAgentClient !== client) {
+      this.sweAgent = new SWEAgent(client, this.jailClient);
+      this.sweAgentClient = client;
+    }
+    return this.sweAgent;
   }
 
   public async processMessage(
@@ -244,7 +298,10 @@ export class MorpheumBot {
       );
       const jailHost = process.env.JAIL_HOST || "localhost";
       const newJailClient = new JailClient(jailHost, parseInt(port, 10));
-      this.sweAgent = new SWEAgent(this.currentLLMClient, newJailClient);
+      this.jailClient = newJailClient;
+      const client = await this.getLLMClient();
+      this.sweAgent = new SWEAgent(client, newJailClient);
+      this.sweAgentClient = client;
       await sendMessage(
         `Agent reset to talk to the new container on port ${port}`,
       );
@@ -270,7 +327,10 @@ Available commands:
 - \`!llm status\` - Show current LLM provider and configuration
 - \`!llm switch openai [model] [baseUrl]\` - Switch to OpenAI (requires OPENAI_API_KEY env var)
 - \`!llm switch ollama [model] [baseUrl]\` - Switch to Ollama
+- \`!llm switch gemini [model] [baseUrl]\` - Switch to Gemini (API key or OAuth required)
 - \`!llm switch copilot <repository>\` - Switch to GitHub Copilot (requires GITHUB_TOKEN env var)
+- \`!llm oauth gemini <start|status|revoke>\` - Manage Gemini OAuth loopback flow
+- \`!llm gemini models\` - List available Gemini models and supported methods
 - \`!openai <prompt>\` - Send a direct prompt to OpenAI (requires API key)
 - \`!ollama <prompt>\` - Send a direct prompt to Ollama
 - \`!copilot status [session-id]\` - Check copilot session status
@@ -281,7 +341,7 @@ Available commands:
 - \`!project status <git-url>\` - Show repository statistics and information
 - \`!gauntlet help\` - Show gauntlet evaluation help
 - \`!gauntlet list\` - List available gauntlet tasks
-- \`!gauntlet run --model <model> [--provider <openai|ollama>] [--task <task>]\` - Run gauntlet evaluation (supports Unicode dashes like —model)
+- \`!gauntlet run [--model <model>] [--provider <openai|ollama|gemini>] [--task <task>]\` - Run gauntlet evaluation (supports Unicode dashes like —model)
 
 For regular tasks, just type your request without a command prefix.`;
       await sendMessage(message);
@@ -311,6 +371,81 @@ For regular tasks, just type your request without a command prefix.`;
   private async handleLLMCommand(body: string, sendMessage: MessageSender, roomId?: string) {
     const parts = body.split(' ');
     const subcommand = parts[1];
+
+    if (subcommand === 'gemini' && parts[2] === 'models') {
+      try {
+        const models = await this.listGeminiModels();
+        if (!models.length) {
+          await sendMessage('No Gemini models returned by the API.');
+          return;
+        }
+
+        const formatted = models
+          .map((model) => {
+            const methods = model.supportedGenerationMethods?.join(', ') || 'unknown';
+            return `- ${model.name} (methods: ${methods})`;
+          })
+          .join('\n');
+
+        await sendMessage(`Gemini models:\n${formatted}`);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        await sendMessage(`Gemini models error: ${errorMessage}`);
+      }
+      return;
+    }
+
+    if (subcommand === 'oauth') {
+      const provider = parts[2];
+      const action = parts[3];
+
+      if (provider !== 'gemini') {
+        await sendMessage('Usage: !llm oauth gemini <start|status|revoke>');
+        return;
+      }
+
+      if (!action || !['start', 'status', 'revoke'].includes(action)) {
+        await sendMessage('Usage: !llm oauth gemini <start|status|revoke>');
+        return;
+      }
+
+      try {
+        const manager = this.getGeminiOAuthManager();
+
+        if (action === 'status') {
+          const status = await manager.getStatus();
+          const expiresAt = status.expiresAt ? new Date(status.expiresAt).toISOString() : 'unknown';
+          await sendMessage(
+            `Gemini OAuth status:\n- Refresh token: ${status.hasRefreshToken ? 'configured' : 'not configured'}\n- Access token: ${status.hasAccessToken ? 'present' : 'not present'}\n- Expires at: ${expiresAt}`
+          );
+          return;
+        }
+
+        if (action === 'revoke') {
+          await manager.revokeTokens();
+          await sendMessage('Gemini OAuth tokens cleared. Run `!llm oauth gemini start` to re-authorize.');
+          return;
+        }
+
+        const { authorizationUrl, redirectUri, waitForToken } = await manager.createLoopbackAuthorization();
+        console.log(`[Gemini OAuth] Redirect URI: ${redirectUri}`);
+        await sendMessage(
+          `Gemini OAuth started.\n` +
+            `Redirect URI (for debugging, do not open): \n\`\`\`\n${redirectUri}\n\`\`\`\n` +
+            `1) Open: \n\`\`\`\n${authorizationUrl}\n\`\`\`\n` +
+            `2) Sign in and approve access\n` +
+            `Waiting for authorization...`
+        );
+
+        await waitForToken;
+
+        await sendMessage('Gemini OAuth authorization complete. You can now `!llm switch gemini`.');
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        await sendMessage(`Gemini OAuth error: ${errorMessage}`);
+      }
+      return;
+    }
 
     if (subcommand === 'status') {
       // Check for room-specific configuration first
@@ -351,22 +486,31 @@ This room has project-specific settings that override global config for tasks:
 *Note: Tasks in this room will automatically use Copilot with repository '${projectConfig.repository}'*`;
       }
 
+      let geminiOauthStatus = 'oauth=not configured';
+      try {
+        const oauthStatus = await this.getGeminiOAuthManager().getStatus();
+        geminiOauthStatus = oauthStatus.hasRefreshToken ? 'oauth=configured' : 'oauth=not configured';
+      } catch (error) {
+        geminiOauthStatus = 'oauth=not configured';
+      }
+
       // Add available providers section
       status += `\n\n**Available Providers:**
 - OpenAI: model=${this.llmConfig.openai.model}, baseUrl=${this.llmConfig.openai.baseUrl}, apiKey=${this.llmConfig.openai.apiKey ? 'configured' : 'not configured'}
 - Ollama: model=${this.llmConfig.ollama.model}, baseUrl=${this.llmConfig.ollama.baseUrl}
+- Gemini: model=${this.llmConfig.gemini.model}, baseUrl=${this.llmConfig.gemini.baseUrl}, apiKey=${this.llmConfig.gemini.apiKey ? 'configured' : 'not configured'}, ${geminiOauthStatus}
 - Copilot: repository=${this.llmConfig.copilot.repository || 'not configured'}, baseUrl=${this.llmConfig.copilot.baseUrl}, apiKey=${this.llmConfig.copilot.apiKey ? 'configured' : 'not configured'}`;
 
       await sendMarkdownMessage(status, sendMessage);
     } else if (subcommand === 'switch') {
-      const provider = parts[2] as 'openai' | 'ollama' | 'copilot';
-      if (!provider || !['openai', 'ollama', 'copilot'].includes(provider)) {
-        await sendMessage('Usage: !llm switch <openai|ollama|copilot> [model] [baseUrl] or !llm switch copilot <repository>');
+      const provider = parts[2] as 'openai' | 'ollama' | 'copilot' | 'gemini';
+      if (!provider || !['openai', 'ollama', 'copilot', 'gemini'].includes(provider)) {
+        await sendMessage('Usage: !llm switch <openai|ollama|gemini|copilot> [model] [baseUrl] or !llm switch copilot <repository>');
         return;
       }
 
       try {
-        this.validateApiKey(provider);
+        await this.validateProviderAuth(provider);
 
         if (provider === 'copilot') {
           // For copilot, the third parameter is the repository
@@ -387,10 +531,8 @@ This room has project-specific settings that override global config for tasks:
         }
 
         this.currentLLMProvider = provider;
-        this.currentLLMClient = this.createCurrentLLMClient();
-        
-        // Update the SWE agent with new LLM client but preserve the current jail client
-        this.sweAgent = new SWEAgent(this.currentLLMClient, this.sweAgent.currentJailClient);
+        this.resetLLMClient();
+        await this.getSWEAgent();
 
         if (provider === 'copilot') {
           await sendMessage(`Switched to ${provider} (repository: ${this.llmConfig.copilot.repository}, baseUrl: ${this.llmConfig.copilot.baseUrl})`);
@@ -402,8 +544,38 @@ This room has project-specific settings that override global config for tasks:
         await sendMessage(`Error switching LLM provider: ${errorMessage}`);
       }
     } else {
-      await sendMessage('Usage: !llm <status|switch>');
+      await sendMessage('Usage: !llm <status|switch|oauth> or !llm gemini models');
     }
+  }
+
+  private async listGeminiModels(): Promise<{ name: string; supportedGenerationMethods?: string[] }[]> {
+    const headers: Record<string, string> = {};
+
+    if (this.llmConfig.gemini.apiKey) {
+      headers['x-goog-api-key'] = this.llmConfig.gemini.apiKey;
+    } else {
+      const oauthManager = this.getGeminiOAuthManager();
+      const accessToken = await oauthManager.getAccessToken();
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    }
+
+    const response = await fetch(`${this.llmConfig.gemini.baseUrl}/models`, {
+      method: 'GET',
+      headers,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Gemini API request failed with status ${response.status}: ${errorText}`);
+    }
+
+    const data = await response.json();
+    const models = Array.isArray(data.models) ? data.models : [];
+
+    return models.map((model) => ({
+      name: model.name,
+      supportedGenerationMethods: model.supportedGenerationMethods,
+    }));
   }
 
   private async handleDirectOpenAICommand(body: string, sendMessage: MessageSender) {
@@ -421,11 +593,12 @@ This room has project-specific settings that override global config for tasks:
     }
 
     try {
-      const client = new OpenAIClient(
-        this.llmConfig.openai.apiKey,
-        this.llmConfig.openai.model,
-        this.llmConfig.openai.baseUrl
-      );
+      const client = await createLLMClient({
+        provider: 'openai',
+        apiKey: this.llmConfig.openai.apiKey,
+        model: this.llmConfig.openai.model,
+        baseUrl: this.llmConfig.openai.baseUrl,
+      });
       
       await sendMessage(`🤖 OpenAI is thinking...`);
       
@@ -449,10 +622,11 @@ This room has project-specific settings that override global config for tasks:
     }
 
     try {
-      const client = new OllamaClient(
-        this.llmConfig.ollama.baseUrl,
-        this.llmConfig.ollama.model
-      );
+      const client = await createLLMClient({
+        provider: 'ollama',
+        model: this.llmConfig.ollama.model,
+        baseUrl: this.llmConfig.ollama.baseUrl,
+      });
       
       await sendMessage(`🤖 Ollama is thinking...`);
       
@@ -484,7 +658,7 @@ This room has project-specific settings that override global config for tasks:
     }
 
     try {
-      const copilotClient = this.currentLLMClient as CopilotClient;
+      const copilotClient = (await this.getLLMClient()) as CopilotClient;
 
       switch (subcommand) {
         case 'status':
@@ -623,13 +797,13 @@ This room has project-specific settings that override global config for tasks:
       const helpMessage = `🏆 **Gauntlet - AI Model Evaluation**
 
 **Usage:**
-- \`!gauntlet run --model <model> [--provider <openai|ollama>] [--task <task>] [--verbose]\` - Run gauntlet evaluation
+- \`!gauntlet run [--model <model>] [--provider <openai|ollama|gemini>] [--task <task>] [--verbose]\` - Run gauntlet evaluation
 - \`!gauntlet list\` - List available tasks
 - \`!gauntlet help\` - Show this help message
 
 **Options:**
-- \`--model <model>\` - Required. The model name to evaluate
-- \`--provider <openai|ollama>\` - Optional. LLM provider to use (defaults to ollama)
+- \`--model <model>\` - Optional. The model name to evaluate (defaults to provider's configured model)
+- \`--provider <openai|ollama|gemini>\` - Optional. LLM provider to use (defaults to current provider)
 - \`--task <task>\` - Optional. Specific task ID to run (runs all tasks if not specified)
 - \`--verbose\` - Optional. Enable verbose output
 
@@ -650,9 +824,10 @@ Examples: \`—model\`, \`–verbose\`, \`—provider\` work the same as \`--mod
 **Examples:**
 - \`!gauntlet run --model gpt-4 --provider openai\` - Run all tasks with GPT-4 via OpenAI
 - \`!gauntlet run --model llama2 --provider ollama --task add-jq\` - Run specific task with Ollama
-- \`!gauntlet run --model llama3 --verbose\` - Run with verbose output (defaults to ollama)
+- \`!gauntlet run --provider gemini\` - Run with Gemini using the default configured model
+- \`!gauntlet run --model gemini-3-pro-preview --provider gemini\` - Run with a specific Gemini model
 
-⚠️ **Note:** Gauntlet only works with OpenAI and Ollama providers, not Copilot.`;
+⚠️ **Note:** Gauntlet works with OpenAI, Ollama, and Gemini providers, not Copilot.`;
       await sendMarkdownMessage(helpMessage, sendMessage);
       return;
     }
@@ -672,7 +847,7 @@ Examples: \`—model\`, \`–verbose\`, \`—provider\` work the same as \`--mod
 - \`create-hugo-site\` (Medium) - Set up Hugo static site
 - \`refine-existing-codebase\` (Hard) - Improve existing code
 
-Use \`!gauntlet run --model <model> --task <task-id>\` to run a specific task.`;
+Use \`!gauntlet run [--model <model>] --task <task-id>\` to run a specific task.`;
       await sendMarkdownMessage(tasksMessage, sendMessage);
       return;
     }
@@ -690,7 +865,10 @@ Use \`!gauntlet run --model <model> --task <task-id>\` to run a specific task.`;
     const normalizedArgs = normalizeArgsArray(args);
     
     let model: string | null = null;
-    let provider: 'openai' | 'ollama' = 'ollama';
+    const defaultProvider = ['openai', 'ollama', 'gemini'].includes(this.currentLLMProvider)
+      ? this.currentLLMProvider
+      : 'ollama';
+    let provider: 'openai' | 'ollama' | 'gemini' = defaultProvider as 'openai' | 'ollama' | 'gemini';
     let task: string | null = null;
     let verbose = false;
 
@@ -700,10 +878,10 @@ Use \`!gauntlet run --model <model> --task <task-id>\` to run a specific task.`;
         i++; // Skip next argument
       } else if (normalizedArgs[i] === '--provider' || normalizedArgs[i] === '-p') {
         const providerArg = normalizedArgs[i + 1];
-        if (providerArg && ['openai', 'ollama'].includes(providerArg)) {
-          provider = providerArg as 'openai' | 'ollama';
+        if (providerArg && ['openai', 'ollama', 'gemini'].includes(providerArg)) {
+          provider = providerArg as 'openai' | 'ollama' | 'gemini';
         } else {
-          await sendMessage('Error: --provider must be either "openai" or "ollama"');
+          await sendMessage('Error: --provider must be either "openai", "ollama", or "gemini"');
           return;
         }
         i++; // Skip next argument
@@ -716,13 +894,21 @@ Use \`!gauntlet run --model <model> --task <task-id>\` to run a specific task.`;
     }
 
     if (!model) {
-      await sendMessage('Error: --model is required. Usage: !gauntlet run --model <model> [--provider <openai|ollama>] [--task <task>] [--verbose]');
-      return;
+      if (provider === 'openai') {
+        model = this.llmConfig.openai.model;
+      } else if (provider === 'gemini') {
+        model = this.llmConfig.gemini.model;
+      } else {
+        model = this.llmConfig.ollama.model;
+      }
     }
 
     // Validate provider requirements
-    if (provider === 'openai' && !this.llmConfig.openai.apiKey) {
-      await sendMessage('Error: OpenAI provider requires OPENAI_API_KEY environment variable to be set.');
+    try {
+      await this.validateProviderAuth(provider);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      await sendMessage(`Error: ${errorMessage}`);
       return;
     }
 
@@ -1037,7 +1223,7 @@ ${contributorsList}${contributorsNote}
    * Returns the original configuration state to restore later
    */
   private async applyRoomSpecificConfig(roomId?: string): Promise<{
-    provider: 'openai' | 'ollama' | 'copilot';
+    provider: 'openai' | 'ollama' | 'copilot' | 'gemini';
     repository?: string;
     client: LLMClient;
   } | null> {
@@ -1072,7 +1258,7 @@ ${contributorsList}${contributorsNote}
     const originalConfig = {
       provider: this.currentLLMProvider,
       repository: this.llmConfig.copilot.repository,
-      client: this.currentLLMClient
+      client: await this.getLLMClient()
     };
 
     // Apply project room configuration
@@ -1083,15 +1269,8 @@ ${contributorsList}${contributorsNote}
       this.llmConfig.copilot.repository = projectConfig.repository;
       this.currentLLMProvider = 'copilot';
       
-      // Create new LLM client with project repository
-      this.currentLLMClient = new CopilotClient(
-        this.llmConfig.copilot.apiKey!,
-        projectConfig.repository,
-        this.llmConfig.copilot.baseUrl
-      );
-      
-      // Update the SWE agent with the new LLM client
-      this.sweAgent = new SWEAgent(this.currentLLMClient, this.sweAgent.currentJailClient);
+      this.resetLLMClient();
+      await this.getSWEAgent();
       
       return originalConfig;
     } catch (error) {
@@ -1105,7 +1284,7 @@ ${contributorsList}${contributorsNote}
    * Restore the original configuration after processing a room-specific task
    */
   private async restoreOriginalConfig(originalConfig: {
-    provider: 'openai' | 'ollama' | 'copilot';
+    provider: 'openai' | 'ollama' | 'copilot' | 'gemini';
     repository?: string;
     client: LLMClient;
   }): Promise<void> {
@@ -1114,9 +1293,9 @@ ${contributorsList}${contributorsNote}
       this.currentLLMProvider = originalConfig.provider;
       this.llmConfig.copilot.repository = originalConfig.repository;
       this.currentLLMClient = originalConfig.client;
-      
-      // Update the SWE agent with the original LLM client
-      this.sweAgent = new SWEAgent(this.currentLLMClient, this.sweAgent.currentJailClient);
+      this.currentLLMClientPromise = Promise.resolve(originalConfig.client);
+      this.sweAgent = new SWEAgent(originalConfig.client, this.jailClient);
+      this.sweAgentClient = originalConfig.client;
     } catch (error) {
       console.error('[ProjectRoom] Failed to restore original configuration:', error);
     }
@@ -1163,7 +1342,8 @@ ${contributorsList}${contributorsNote}
       const prompt = conversationHistory.map((msg) => `${msg.role}: ${msg.content}`).join('\n\n');
       
       // Call LLM without streaming chunks to user - we'll show structured progress instead
-      const modelResponse = await this.currentLLMClient.sendStreaming(prompt, () => {
+      const client = await this.getLLMClient();
+      const modelResponse = await client.sendStreaming(prompt, () => {
         // Don't send chunks to user to avoid verbose output
       });
       
@@ -1207,7 +1387,8 @@ ${nextStep}`;
         const executingCommandMarkdown = `⚡ **Executing command:** ${formattedCommand}`;
         await sendMarkdownMessage(executingCommandMarkdown, sendMessage);
         
-        const commandOutput = await this.sweAgent.currentJailClient.execute(commands[0]!);
+        const sweAgent = await this.getSWEAgent();
+        const commandOutput = await sweAgent.currentJailClient.execute(commands[0]!);
         conversationHistory.push({ role: 'tool', content: commandOutput });
         
         // Smart output display: show small outputs directly, large outputs with prefix + spoiler
@@ -1291,7 +1472,8 @@ ${spoilerContent}
     // For Copilot, we send just the user's task without system prompts
     // since Copilot already understands repository context
     // The CopilotClient handles all status updates including issue creation
-    const response = await this.currentLLMClient.sendStreaming(task, async (chunk) => {
+    const client = await this.getLLMClient();
+    const response = await client.sendStreaming(task, async (chunk) => {
       // Handle special dual messages for iframe content
       if (chunk.startsWith('__DUAL_MESSAGE__')) {
         try {
@@ -1388,14 +1570,16 @@ ${status.hasCredentials && status.hasAccessToken ?
   /**
    * Get accumulated LLM metrics from the current client
    */
-  getLLMMetrics() {
-    return this.currentLLMClient.getMetrics?.() || null;
+  async getLLMMetrics() {
+    const client = await this.getLLMClient();
+    return client.getMetrics?.() || null;
   }
 
   /**
    * Reset LLM metrics for the current client
    */
-  resetLLMMetrics() {
-    this.currentLLMClient.resetMetrics?.();
+  async resetLLMMetrics() {
+    const client = await this.getLLMClient();
+    client.resetMetrics?.();
   }
 }
