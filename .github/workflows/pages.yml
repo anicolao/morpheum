@@ -5,11 +5,13 @@ on:
     branches: [ main ]
     paths:
       - 'docs/**'
+      - 'OAUTH_SUPPORT.md'
       - '.github/workflows/pages.yml'
   pull_request:
     branches: [ main ]
     paths:
       - 'docs/**'
+      - 'OAUTH_SUPPORT.md'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
     inputs:
