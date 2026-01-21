@@ -44,7 +44,7 @@ title: "Project Renaming (Morpheus to Morpheum)"
 
 ```liquid
 <!-- BEFORE: Invalid include path -->
-{% include_relative ../../ONBOARDING.md %}
+{% raw %}{% include_relative ../../ONBOARDING.md %}{% endraw %}
 
 <!-- AFTER: Valid include path -->
 {% include ONBOARDING.md %}
