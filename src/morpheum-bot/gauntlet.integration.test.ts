@@ -34,6 +34,7 @@ describe('Gauntlet Integration', () => {
 
   beforeEach(() => {
     mockSendMessage = vi.fn();
+    process.env.OLLAMA_MODEL = 'morpheum-local';
     bot = new MorpheumBot();
     vi.clearAllMocks();
   });
@@ -104,13 +105,15 @@ describe('Gauntlet Integration', () => {
     delete process.env.OPENAI_API_KEY;
   });
 
-  it('should require model parameter for gauntlet run', async () => {
-    await bot.processMessage('!gauntlet run --task test-task', 'test-user', mockSendMessage);
+  it('should default to configured model when model is not provided', async () => {
+    const mockExecuteGauntlet = vi.mocked(executeGauntlet);
+    mockExecuteGauntlet.mockResolvedValue({
+      'test-task': { success: true }
+    });
 
-    // Should show error message for missing model
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      expect.stringContaining('Error: --model is required')
-    );
+    await bot.processMessage('!gauntlet run --provider ollama --task test-task', 'test-user', mockSendMessage);
+
+    expect(mockExecuteGauntlet).toHaveBeenCalledWith('morpheum-local', 'ollama', 'test-task', false, expect.any(Function));
   });
 
   it('should validate provider parameter for gauntlet run', async () => {
@@ -118,7 +121,7 @@ describe('Gauntlet Integration', () => {
 
     // Should show error message for invalid provider
     expect(mockSendMessage).toHaveBeenCalledWith(
-      expect.stringContaining('Error: --provider must be either "openai" or "ollama"')
+      expect.stringContaining('Error: --provider must be either "openai", "ollama", or "gemini"')
     );
   });
 
@@ -131,7 +134,7 @@ describe('Gauntlet Integration', () => {
 
     // Should show error about missing API key
     expect(mockSendMessage).toHaveBeenCalledWith(
-      expect.stringContaining('Error: OpenAI provider requires OPENAI_API_KEY environment variable to be set.')
+      expect.stringContaining('Error: OpenAI API key is not configured')
     );
   });
 
@@ -176,7 +179,7 @@ describe('Gauntlet Integration', () => {
 
     // Should show error about invalid provider
     expect(mockSendMessage).toHaveBeenCalledWith(
-      expect.stringContaining('Error: --provider must be either "openai" or "ollama"')
+      expect.stringContaining('Error: --provider must be either "openai", "ollama", or "gemini"')
     );
   });
 

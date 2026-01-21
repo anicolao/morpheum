@@ -500,7 +500,7 @@ async function checkContainerReadiness(port: number, host: string): Promise<bool
 // Placeholder for the evaluation logic
 async function runGauntlet(
   model: string,
-  provider: 'openai' | 'ollama',
+  provider: 'openai' | 'ollama' | 'gemini',
   taskId: string,
   results: GauntletResult,
   verbose: boolean,
@@ -517,7 +517,7 @@ async function runGauntlet(
   
   try {
     // Configure the bot to use the specified provider and model
-    bot.configureForGauntlet(model, provider);
+    await bot.configureForGauntlet(model, provider);
   } catch (error) {
     console.error(`Error configuring bot: ${error instanceof Error ? error.message : String(error)}`);
     if (progressCallback) {
@@ -687,7 +687,7 @@ async function runGauntlet(
   }
   
   // Reset metrics before the task
-  bot.resetLLMMetrics();
+  await bot.resetLLMMetrics();
   
   const result = await bot.processMessage(
     task.prompt,
@@ -696,7 +696,7 @@ async function runGauntlet(
   );
 
   // 4. Capture metrics after the task
-  const taskMetrics = bot.getLLMMetrics();
+  const taskMetrics = await bot.getLLMMetrics();
 
   // 5. Capture the model's output and actions
   if (Array.isArray(result)) {
@@ -789,7 +789,7 @@ function createProgressTable(
 // Export function for use by the bot
 export async function executeGauntlet(
   model: string,
-  provider: 'openai' | 'ollama' = 'ollama',
+  provider: 'openai' | 'ollama' | 'gemini' = 'ollama',
   taskId?: string,
   verbose: boolean = false,
   progressCallback?: ProgressCallback
@@ -853,14 +853,14 @@ if (process.argv[1] === __filename) {
     .command("run")
     .description("Run the gauntlet for a specific model and task")
     .requiredOption("-m, --model <model>", "The model to evaluate")
-    .option("-p, --provider <provider>", "The LLM provider to use (openai|ollama)", "ollama")
+    .option("-p, --provider <provider>", "The LLM provider to use (openai|ollama|gemini)", "ollama")
     .option("-t, --task <task>", "The task to run (defaults to all tasks)")
     .option("-v, --verbose", "Enable verbose logging", false)
     .action(async (options) => {
       try {
         // Validate provider option
-        if (!['openai', 'ollama'].includes(options.provider)) {
-          throw new Error('--provider must be either "openai" or "ollama"');
+        if (!['openai', 'ollama', 'gemini'].includes(options.provider)) {
+          throw new Error('--provider must be either "openai", "ollama", or "gemini"');
         }
 
         const results = await executeGauntlet(

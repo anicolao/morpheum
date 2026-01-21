@@ -3,6 +3,7 @@ import { createLLMClient, LLMConfig } from './llmClient';
 import { OpenAIClient } from './openai';
 import { OllamaClient } from './ollamaClient';
 import { CopilotClient } from './copilotClient';
+import { GeminiClient } from './geminiClient';
 
 describe('LLM Client Factory', () => {
   it('should create OpenAI client with valid config', async () => {
@@ -40,6 +41,17 @@ describe('LLM Client Factory', () => {
     expect(client).toBeInstanceOf(CopilotClient);
   });
 
+  it('should create Gemini client with valid config', async () => {
+    const config: LLMConfig = {
+      provider: 'gemini',
+      apiKey: 'test-gemini-key',
+      model: 'gemini-1.5-pro',
+    };
+
+    const client = await createLLMClient(config);
+    expect(client).toBeInstanceOf(GeminiClient);
+  });
+
   it('should throw error for OpenAI without API key', async () => {
     const config: LLMConfig = {
       provider: 'openai',
@@ -65,6 +77,15 @@ describe('LLM Client Factory', () => {
     };
 
     await expect(createLLMClient(config)).rejects.toThrow('Repository name is required for Copilot integration');
+  });
+
+  it('should throw error for Gemini without API key', async () => {
+    const config: LLMConfig = {
+      provider: 'gemini',
+      model: 'gemini-1.5-pro',
+    };
+
+    await expect(createLLMClient(config)).rejects.toThrow('Gemini API key or OAuth manager is required');
   });
 
   it('should throw error for unsupported provider', async () => {

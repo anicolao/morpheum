@@ -32,3 +32,5 @@ jail/*.js.map
 .secrets
 # Secrets
 .env
+GoogleOAuthCredentails*.json
+jail/codex-tmp/
