@@ -4,4 +4,4 @@ title: OAuth Support
 permalink: /documentation/oauth-support/
 ---
 
-{% include_relative ../../OAUTH_SUPPORT.md %}
+{% include OAUTH_SUPPORT.md %}
