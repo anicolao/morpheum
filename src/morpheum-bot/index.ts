@@ -149,7 +149,13 @@ async function loadPromptText(promptPath?: string): Promise<string | undefined> 
   const resolvedPath = path.isAbsolute(promptPath)
     ? promptPath
     : path.resolve(process.cwd(), promptPath);
-  return fs.promises.readFile(resolvedPath, 'utf8');
+  const prompt = await fs.promises.readFile(resolvedPath, 'utf8');
+  const sharedPath = path.resolve(process.cwd(), 'prompts/work-environment.md');
+  if (fs.existsSync(sharedPath)) {
+    const shared = await fs.promises.readFile(sharedPath, 'utf8');
+    return `${shared.trim()}\n\n${prompt.trim()}\n`;
+  }
+  return prompt;
 }
 
 type BotRuntime = {
