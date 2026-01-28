@@ -74,6 +74,7 @@ export class CopilotClient implements LLMClient {
   private owner: string;
   private repo: string;
   private pollInterval: number;
+  private demoStepMs: number;
 
   constructor(
     private readonly githubToken: string,
@@ -94,7 +95,11 @@ export class CopilotClient implements LLMClient {
     this.repo = parts[1];
     
     // Poll interval in seconds (from env or default 30 seconds)
-    this.pollInterval = parseInt(process.env.COPILOT_POLL_INTERVAL || '30', 10) * 1000;
+    const pollIntervalSeconds = Number.parseFloat(process.env.COPILOT_POLL_INTERVAL || '30');
+    this.pollInterval = Number.isFinite(pollIntervalSeconds) ? Math.max(0, pollIntervalSeconds * 1000) : 30000;
+
+    const demoStepMs = Number.parseInt(process.env.COPILOT_DEMO_STEP_MS || '1000', 10);
+    this.demoStepMs = Number.isFinite(demoStepMs) ? Math.max(0, demoStepMs) : 1000;
   }
 
   getMetrics(): LLMMetrics | null {
@@ -406,9 +411,9 @@ export class CopilotClient implements LLMClient {
       let status: CopilotSessionStatus;
       let result: CopilotResult | undefined;
       
-      if (sessionAge < 1000) {
+      if (sessionAge < this.demoStepMs) {
         status = 'pending';
-      } else if (sessionAge < 2000) {
+      } else if (sessionAge < this.demoStepMs * 2) {
         status = 'in_progress';
       } else {
         status = 'completed';

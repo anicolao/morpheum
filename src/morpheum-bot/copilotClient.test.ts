@@ -58,7 +58,8 @@ describe('CopilotClient', () => {
     mockOctokit.rest.reactions.listForIssue.mockResolvedValue({ data: [] });
     
     // Set poll interval to very short for testing
-    process.env.COPILOT_POLL_INTERVAL = '0.1';
+    process.env.COPILOT_POLL_INTERVAL = '0.01';
+    process.env.COPILOT_DEMO_STEP_MS = '5';
     client = new CopilotClient('test-token', 'owner/repo');
   });
 

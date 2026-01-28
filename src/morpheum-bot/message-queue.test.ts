@@ -5,14 +5,20 @@ import type { MatrixClient } from 'matrix-bot-sdk';
 
 describe('message-queue', () => {
   let client: MatrixClient;
+  const advance = async (ms: number) => {
+    vi.advanceTimersByTime(ms);
+    await Promise.resolve();
+  };
 
   beforeEach(() => {
+    vi.useFakeTimers();
     client = new (matrixSdk as any).MatrixClient('http://localhost', 'token');
     vi.spyOn(client, 'sendMessage').mockResolvedValue('');
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it('should send a message from the queue', async () => {
@@ -21,7 +27,7 @@ describe('message-queue', () => {
 
     queue.queueMessage('room1', { msgtype: 'm.text', body: 'Hello' });
 
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    await advance(400);
 
     expect(client.sendMessage).toHaveBeenCalledWith('room1', { msgtype: 'm.text', body: 'Hello' });
     queue.stop();
@@ -38,10 +44,10 @@ describe('message-queue', () => {
 
     queue.queueMessage('room1', { msgtype: 'm.text', body: 'Hello' });
 
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    await advance(200);
     expect(client.sendMessage).toHaveBeenCalledTimes(1);
 
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    await advance(200);
 
     expect(client.sendMessage).toHaveBeenCalledTimes(2);
     queue.stop();
@@ -54,7 +60,7 @@ describe('message-queue', () => {
     queue.queueMessage('room1', { msgtype: 'm.text', body: 'Hello' });
     queue.queueMessage('room1', { msgtype: 'm.text', body: 'World' });
 
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    await advance(400);
 
     expect(client.sendMessage).toHaveBeenCalledTimes(1);
     expect(client.sendMessage).toHaveBeenCalledWith('room1', {
@@ -71,7 +77,7 @@ describe('message-queue', () => {
     queue.queueMessage('room1', { msgtype: 'm.text', body: 'Hello' });
     queue.queueMessage('room1', { msgtype: 'm.text', body: 'World', format: 'org.matrix.custom.html', formatted_body: '<p>World</p>' });
 
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    await advance(600);
 
     expect(client.sendMessage).toHaveBeenCalledTimes(2);
     expect(client.sendMessage).toHaveBeenCalledWith('room1', {
