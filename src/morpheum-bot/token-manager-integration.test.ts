@@ -1,12 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TokenManager } from './token-manager';
-import { MatrixError } from 'matrix-bot-sdk';
 
 // Mock matrix-js-sdk
-const mockCreateClient = vi.hoisted(() => vi.fn());
+const mockCreateClient = vi.fn();
 
 vi.mock('matrix-js-sdk', () => ({
-  createClient: mockCreateClient
+  createClient: mockCreateClient,
 }));
 
 describe('TokenManager Integration', () => {
@@ -41,7 +40,7 @@ describe('TokenManager Integration', () => {
       callCount++;
       if (callCount === 1) {
         // First call fails with token error
-        throw new MatrixError({errcode: 'M_UNKNOWN_TOKEN', error: 'Token expired'});
+        throw { errcode: 'M_UNKNOWN_TOKEN', error: 'Token expired' };
       }
       // Second call succeeds
       return 'operation_successful';
@@ -82,7 +81,7 @@ describe('TokenManager Integration', () => {
 
   it('should demonstrate rate limiting compatibility', async () => {
     // This shows that M_LIMIT_EXCEEDED is NOT treated as a token error
-    const rateLimitError = new MatrixError({errcode: 'M_LIMIT_EXCEEDED', error: 'Too many requests'});
+    const rateLimitError = { errcode: 'M_LIMIT_EXCEEDED', error: 'Too many requests' };
     const mockMatrixOperation = vi.fn().mockRejectedValue(rateLimitError);
     const wrappedOperation = tokenManager.withTokenRefresh(mockMatrixOperation);
 

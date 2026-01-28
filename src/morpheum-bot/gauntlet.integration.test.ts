@@ -1,53 +1,37 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MorpheumBot } from './bot';
 import { SWEAgent } from './sweAgent';
 import { JailClient } from './jailClient';
-import { executeGauntlet, gauntletTasks } from '../gauntlet/gauntlet';
-
-// Mock the gauntlet module to avoid Docker dependencies in tests
-vi.mock('../gauntlet/gauntlet', () => ({
-  executeGauntlet: vi.fn(),
-  gauntletTasks: [
-    {
-      id: 'test-task-1',
-      skill: 'Environment Management & Tooling',
-      difficulty: 'Easy',
-      prompt: 'Test task for validation',
-      successCondition: vi.fn()
-    },
-    {
-      id: 'test-task-2',
-      skill: 'Software Development & Refinement',
-      difficulty: 'Medium',
-      prompt: 'Another test task',
-      successCondition: vi.fn()
-    }
-  ]
-}));
-
-// Mock external dependencies
-vi.mock('./jailClient');
+import * as gauntletModule from '../gauntlet/gauntlet';
 
 describe('Gauntlet Integration', () => {
   let bot: MorpheumBot;
   let mockSendMessage: ReturnType<typeof vi.fn>;
+  let executeGauntletSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     mockSendMessage = vi.fn();
     process.env.OLLAMA_MODEL = 'morpheum-local';
     bot = new MorpheumBot();
     vi.clearAllMocks();
+    executeGauntletSpy = vi.spyOn(gauntletModule, 'executeGauntlet').mockResolvedValue({
+      'test-task': { success: true }
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('should export gauntlet tasks for bot integration', () => {
-    expect(gauntletTasks).toBeDefined();
-    expect(Array.isArray(gauntletTasks)).toBe(true);
-    expect(gauntletTasks.length).toBeGreaterThan(0);
+    expect(gauntletModule.gauntletTasks).toBeDefined();
+    expect(Array.isArray(gauntletModule.gauntletTasks)).toBe(true);
+    expect(gauntletModule.gauntletTasks.length).toBeGreaterThan(0);
   });
 
   it('should export executeGauntlet function for bot integration', () => {
-    expect(executeGauntlet).toBeDefined();
-    expect(typeof executeGauntlet).toBe('function');
+    expect(gauntletModule.executeGauntlet).toBeDefined();
+    expect(typeof gauntletModule.executeGauntlet).toBe('function');
   });
 
   it('should preserve jail client when switching LLM providers', () => {
@@ -62,8 +46,7 @@ describe('Gauntlet Integration', () => {
   });
 
   it('should handle gauntlet run command with proper argument parsing', async () => {
-    const mockExecuteGauntlet = vi.mocked(executeGauntlet);
-    mockExecuteGauntlet.mockResolvedValue({
+    executeGauntletSpy.mockResolvedValue({
       'test-task': { success: true }
     });
 
@@ -71,24 +54,22 @@ describe('Gauntlet Integration', () => {
     await bot.processMessage('!gauntlet run --model test-model --task test-task', 'test-user', mockSendMessage);
 
     // Verify executeGauntlet was called with correct arguments (default provider is ollama)
-    expect(mockExecuteGauntlet).toHaveBeenCalledWith('test-model', 'ollama', 'test-task', false, expect.any(Function));
+    expect(executeGauntletSpy).toHaveBeenCalledWith('test-model', 'ollama', 'test-task', false, expect.any(Function));
   });
 
   it('should handle gauntlet run command without task (all tasks)', async () => {
-    const mockExecuteGauntlet = vi.mocked(executeGauntlet);
-    mockExecuteGauntlet.mockResolvedValue({
+    executeGauntletSpy.mockResolvedValue({
       'test-task': { success: true }
     });
 
     await bot.processMessage('!gauntlet run --model test-model --verbose', 'test-user', mockSendMessage);
 
     // Verify executeGauntlet was called with undefined task (all tasks) and verbose=true
-    expect(mockExecuteGauntlet).toHaveBeenCalledWith('test-model', 'ollama', undefined, true, expect.any(Function));
+    expect(executeGauntletSpy).toHaveBeenCalledWith('test-model', 'ollama', undefined, true, expect.any(Function));
   });
 
   it('should handle gauntlet run command with provider option', async () => {
-    const mockExecuteGauntlet = vi.mocked(executeGauntlet);
-    mockExecuteGauntlet.mockResolvedValue({
+    executeGauntletSpy.mockResolvedValue({
       'test-task': { success: true }
     });
 
@@ -99,21 +80,20 @@ describe('Gauntlet Integration', () => {
     await testBot.processMessage('!gauntlet run --model gpt-4 --provider openai --task test-task', 'test-user', mockSendMessage);
 
     // Verify executeGauntlet was called with openai provider
-    expect(mockExecuteGauntlet).toHaveBeenCalledWith('gpt-4', 'openai', 'test-task', false, expect.any(Function));
+    expect(executeGauntletSpy).toHaveBeenCalledWith('gpt-4', 'openai', 'test-task', false, expect.any(Function));
     
     // Clean up
     delete process.env.OPENAI_API_KEY;
   });
 
   it('should default to configured model when model is not provided', async () => {
-    const mockExecuteGauntlet = vi.mocked(executeGauntlet);
-    mockExecuteGauntlet.mockResolvedValue({
+    executeGauntletSpy.mockResolvedValue({
       'test-task': { success: true }
     });
 
     await bot.processMessage('!gauntlet run --provider ollama --task test-task', 'test-user', mockSendMessage);
 
-    expect(mockExecuteGauntlet).toHaveBeenCalledWith('morpheum-local', 'ollama', 'test-task', false, expect.any(Function));
+    expect(executeGauntletSpy).toHaveBeenCalledWith('morpheum-local', 'ollama', 'test-task', false, expect.any(Function));
   });
 
   it('should validate provider parameter for gauntlet run', async () => {
@@ -152,8 +132,7 @@ describe('Gauntlet Integration', () => {
     // Clear previous calls
     mockSendMessage.mockClear();
 
-    const mockExecuteGauntlet = vi.mocked(executeGauntlet);
-    mockExecuteGauntlet.mockResolvedValue({
+    executeGauntletSpy.mockResolvedValue({
       'test-task': { success: true }
     });
 
@@ -166,7 +145,7 @@ describe('Gauntlet Integration', () => {
     );
 
     // Verify executeGauntlet was called with openai provider
-    expect(mockExecuteGauntlet).toHaveBeenCalledWith('gpt-4', 'openai', undefined, false, expect.any(Function));
+    expect(executeGauntletSpy).toHaveBeenCalledWith('gpt-4', 'openai', undefined, false, expect.any(Function));
     
     // Clean up
     delete process.env.GITHUB_TOKEN;
@@ -184,8 +163,7 @@ describe('Gauntlet Integration', () => {
   });
 
   it('should display gauntlet results with pass/fail status', async () => {
-    const mockExecuteGauntlet = vi.mocked(executeGauntlet);
-    mockExecuteGauntlet.mockResolvedValue({
+    executeGauntletSpy.mockResolvedValue({
       'task1': { success: true },
       'task2': { success: false },
       'task3': { success: true }
@@ -205,20 +183,16 @@ describe('Gauntlet Integration', () => {
   });
 
   it('should provide progress feedback during gauntlet execution', async () => {
-    const mockExecuteGauntlet = vi.mocked(executeGauntlet);
-    
-    // Mock the executeGauntlet function to capture the progress callback
     let capturedProgressCallback: ((message: string, html?: string) => Promise<void>) | null = null;
-    mockExecuteGauntlet.mockImplementation(async (model, provider, taskId, verbose, progressCallback) => {
+    executeGauntletSpy.mockImplementation(async (model, provider, taskId, verbose, progressCallback) => {
       capturedProgressCallback = progressCallback || null;
-      
-      // Simulate progress updates if callback is provided
+
       if (progressCallback) {
         await progressCallback('📊 **Gauntlet Progress Table**\n\n| Task | Status |\n|------|--------|\n| test-task | ⏳ PENDING |');
         await progressCallback('🎯 **Starting Task: test-task**');
         await progressCallback('✅ **Task test-task PASSED**');
       }
-      
+
       return { 'test-task': { success: true } };
     });
 
@@ -243,11 +217,9 @@ describe('Gauntlet Integration', () => {
   });
 
   it('should generate progress table with task status correctly', async () => {
-    const mockExecuteGauntlet = vi.mocked(executeGauntlet);
-    
     // Mock to capture progress messages
     let progressMessages: string[] = [];
-    mockExecuteGauntlet.mockImplementation(async (model, provider, taskId, verbose, progressCallback) => {
+    executeGauntletSpy.mockImplementation(async (model, provider, taskId, verbose, progressCallback) => {
       if (progressCallback) {
         // Simulate initial progress table (all pending)
         await progressCallback('📊 **Gauntlet Progress Table**\n\n| Task | Status |\n|------|--------|\n| test-task-1 | ⏳ PENDING |\n| test-task-2 | ⏳ PENDING |');

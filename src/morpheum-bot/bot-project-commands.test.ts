@@ -1,10 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MorpheumBot } from './bot';
-
-// Mock dependencies
-vi.mock('./sweAgent');
-vi.mock('./jailClient');
-vi.mock('./project-room-manager');
+import { ProjectRoomManager } from './project-room-manager';
 
 // Mock MatrixClient
 const mockMatrixClient = {
@@ -21,10 +17,32 @@ describe('MorpheumBot Project Commands', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(ProjectRoomManager.prototype, 'createProjectRoom').mockResolvedValue({
+      success: true,
+      roomId: '!test:example.com',
+      projectName: 'test-project',
+    });
+    vi.spyOn(ProjectRoomManager.prototype, 'inviteUserToRoom').mockResolvedValue({ success: true });
+    vi.spyOn(ProjectRoomManager.prototype, 'getProjectConfig').mockResolvedValue(null);
+    vi.spyOn(ProjectRoomManager.prototype, 'sendWelcomeMessage').mockResolvedValue(undefined);
+    vi.spyOn(ProjectRoomManager.prototype, 'getRepositoryStats').mockResolvedValue({
+      name: 'test-project',
+      description: 'Test repo',
+      stars: 0,
+      forks: 0,
+      openIssues: 0,
+      watchers: 0,
+      language: 'TypeScript',
+      url: 'https://github.com/test/test-project',
+    } as any);
     bot = new MorpheumBot();
     bot.setMatrixClient(mockMatrixClient as any);
     
     mockSendMessage = vi.fn();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   describe('!project help command', () => {

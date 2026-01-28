@@ -1,11 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MorpheumBot } from './bot';
-
-// Mock all external dependencies
-vi.mock('./sweAgent');
-vi.mock('./ollamaClient');
-vi.mock('./openai');
-vi.mock('./jailClient');
+import * as llmClientModule from './llmClient';
 vi.mock('@octokit/rest', () => ({
   Octokit: vi.fn().mockImplementation(() => ({
     rest: {
@@ -15,18 +10,6 @@ vi.mock('@octokit/rest', () => ({
       }
     }
   }))
-}));
-
-// Mock fs.promises
-vi.mock('fs', () => ({
-  promises: {
-    readFile: vi.fn().mockResolvedValue('Mock file content')
-  }
-}));
-
-// Mock execa
-vi.mock('execa', () => ({
-  execa: vi.fn().mockResolvedValue({ stdout: 'test-container-name' })
 }));
 
 describe('MorpheumBot Copilot Integration', () => {
@@ -41,8 +24,21 @@ describe('MorpheumBot Copilot Integration', () => {
     process.env.COPILOT_REPOSITORY = 'test-owner/test-repo';
     process.env.COPILOT_POLL_INTERVAL = '0.1';
     
+    vi.spyOn(llmClientModule, 'createLLMClient').mockResolvedValue({
+      sendStreaming: vi.fn().mockResolvedValue('Mocked response'),
+      send: vi.fn().mockResolvedValue('Mocked response'),
+      getActiveSessions: vi.fn().mockResolvedValue([]),
+      cancelSession: vi.fn().mockResolvedValue(true),
+      getMetrics: vi.fn().mockReturnValue(null),
+      resetMetrics: vi.fn(),
+    } as any);
+
     bot = new MorpheumBot();
     mockSendMessage = vi.fn().mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('should show copilot in help command', async () => {

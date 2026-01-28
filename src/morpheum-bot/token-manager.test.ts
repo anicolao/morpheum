@@ -1,12 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TokenManager } from './token-manager';
-import { MatrixError } from 'matrix-bot-sdk';
 
-// Mock matrix-js-sdk with hoisted variables
-const mockCreateClient = vi.hoisted(() => vi.fn());
+// Mock matrix-js-sdk
+const mockCreateClient = vi.fn();
 
 vi.mock('matrix-js-sdk', () => ({
-  createClient: mockCreateClient
+  createClient: mockCreateClient,
 }));
 
 describe('TokenManager', () => {
@@ -110,22 +109,22 @@ describe('TokenManager', () => {
 
   describe('isTokenError', () => {
     it('should detect M_UNKNOWN_TOKEN error', () => {
-      const error = new MatrixError({errcode: 'M_UNKNOWN_TOKEN', error: 'Unknown token'});
+      const error = { errcode: 'M_UNKNOWN_TOKEN', error: 'Unknown token' };
       expect(tokenManager.isTokenError(error)).toBe(true);
     });
 
     it('should detect M_MISSING_TOKEN error', () => {
-      const error = new MatrixError({errcode: 'M_MISSING_TOKEN', error: 'Missing token'});
+      const error = { errcode: 'M_MISSING_TOKEN', error: 'Missing token' };
       expect(tokenManager.isTokenError(error)).toBe(true);
     });
 
     it('should detect M_FORBIDDEN error', () => {
-      const error = new MatrixError({errcode: 'M_FORBIDDEN', error: 'Forbidden'});
+      const error = { errcode: 'M_FORBIDDEN', error: 'Forbidden' };
       expect(tokenManager.isTokenError(error)).toBe(true);
     });
 
     it('should not detect other errors as token errors', () => {
-      const error = new MatrixError({errcode: 'M_LIMIT_EXCEEDED', error: 'Rate limited'});
+      const error = { errcode: 'M_LIMIT_EXCEEDED', error: 'Rate limited' };
       expect(tokenManager.isTokenError(error)).toBe(false);
     });
 
@@ -197,7 +196,7 @@ describe('TokenManager', () => {
       mockCreateClient.mockReturnValue(mockClient);
 
       const mockFn = vi.fn()
-        .mockRejectedValueOnce(new MatrixError({errcode: 'M_UNKNOWN_TOKEN', error: 'Unknown token'}))
+        .mockRejectedValueOnce({ errcode: 'M_UNKNOWN_TOKEN', error: 'Unknown token' })
         .mockResolvedValueOnce('success_after_refresh');
       
       const wrappedFn = tokenManager.withTokenRefresh(mockFn);

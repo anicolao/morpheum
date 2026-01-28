@@ -7,10 +7,13 @@ import {
   LogLevel,
   LogService,
 } from "matrix-bot-sdk";
-import { startMessageQueue, queueMessage } from "./message-queue";
+import { createMessageQueue } from "./message-queue";
 import { MorpheumBot } from "./bot";
 import { TokenManager } from "./token-manager";
 import { normalizeDashes } from "./dash-normalizer";
+import { loadBotConfigs, ResolvedBotConfig } from "./bot-config";
+import * as path from "path";
+import * as fs from "fs";
 
 // Parse command line arguments
 interface ParsedArgs {
@@ -37,11 +40,12 @@ function showHelp(): void {
   console.log("  bun src/morpheum-bot/index.ts --help                          # Show this help message");
   console.log("");
   console.log("ENVIRONMENT VARIABLES:");
-  console.log("  HOMESERVER_URL              Matrix homeserver URL (required unless using --register)");
-  console.log("  ACCESS_TOKEN                Matrix access token (required if no username/password)");
-  console.log("  MATRIX_USERNAME             Matrix username for login/registration");
-  console.log("  MATRIX_PASSWORD             Matrix password for login/registration");
-  console.log("  REGISTRATION_TOKEN_*        Registration token for specific servers (when using --register)");
+  console.log("  MORPHEUM_BOTS_CONFIG       Path to JSON config for multi-identity bots");
+  console.log("  HOMESERVER_URL             Matrix homeserver URL (required unless using --register)");
+  console.log("  ACCESS_TOKEN               Matrix access token (required if no username/password)");
+  console.log("  MATRIX_USERNAME            Matrix username for login/registration");
+  console.log("  MATRIX_PASSWORD            Matrix password for login/registration");
+  console.log("  REGISTRATION_TOKEN_*       Registration token for specific servers (when using --register)");
   console.log("");
   console.log("For more information, see: https://github.com/anicolao/morpheum");
 }
@@ -138,176 +142,192 @@ async function registerUser(serverUrl: string, username: string, password: strin
   }
 }
 
-// read environment variables
-const homeserverUrl = process.env.HOMESERVER_URL;
-const accessToken = process.env.ACCESS_TOKEN;
-const username = process.env.MATRIX_USERNAME;
-const password = process.env.MATRIX_PASSWORD;
+async function loadPromptText(promptPath?: string): Promise<string | undefined> {
+  if (!promptPath) {
+    return undefined;
+  }
+  const resolvedPath = path.isAbsolute(promptPath)
+    ? promptPath
+    : path.resolve(process.cwd(), promptPath);
+  return fs.promises.readFile(resolvedPath, 'utf8');
+}
 
-// Determine effective homeserver URL
-let effectiveHomeserverUrl: string;
+type BotRuntime = {
+  config: ResolvedBotConfig;
+  bot: MorpheumBot;
+  client: MatrixClient;
+  userId: string;
+  messageQueue: ReturnType<typeof createMessageQueue>;
+  tokenManager?: TokenManager;
+};
+
+async function createBotRuntime(config: ResolvedBotConfig, debugMode: boolean): Promise<BotRuntime> {
+  let currentToken = config.matrix.accessToken;
+  let currentRefreshToken: string | undefined;
+  let client!: MatrixClient;
+  let bot!: MorpheumBot;
+  let messageQueue!: ReturnType<typeof createMessageQueue>;
+
+  if (!currentToken && !(config.matrix.username && config.matrix.password)) {
+    throw new Error(`Bot ${config.id} requires accessToken or username/password credentials.`);
+  }
+
+  let tokenManager: TokenManager | undefined;
+
+  if (config.matrix.username && config.matrix.password) {
+    console.log(`[Auth][${config.id}] Using username/password authentication with automatic token refresh`);
+
+    tokenManager = new TokenManager({
+      homeserverUrl: config.matrix.homeserverUrl,
+      username: config.matrix.username,
+      password: config.matrix.password,
+      accessToken: currentToken,
+      onTokenRefresh: async (newToken: string, newRefreshToken?: string) => {
+        console.log(`[Auth][${config.id}] Updating client with new access token`);
+        currentToken = newToken;
+        currentRefreshToken = newRefreshToken;
+        await client.stop();
+        messageQueue.stop();
+        client = createMatrixClient(newToken, config.matrix.homeserverUrl, config.matrix.storagePath);
+        bot.setMatrixClient(client);
+        messageQueue = createMessageQueue(client);
+        setupClientHandlers(client, bot, tokenManager, messageQueue.queueMessage);
+        messageQueue.start();
+        await client.start();
+        console.log(`[Auth][${config.id}] Client reconnected with new token`);
+      },
+    });
+
+    if (!currentToken) {
+      console.log(`[Auth][${config.id}] No initial access token provided, obtaining one...`);
+      try {
+        const result = await tokenManager.getNewToken();
+        currentToken = result.access_token;
+        currentRefreshToken = result.refresh_token;
+        console.log(`[Auth][${config.id}] Initial access token obtained successfully`);
+        if (result.refresh_token) {
+          console.log(`[Auth][${config.id}] Refresh token available for future use`);
+        } else {
+          console.log(`[Auth][${config.id}] No refresh token provided by server - will use password fallback`);
+        }
+      } catch (error) {
+        console.error(`[Auth][${config.id}] Failed to obtain initial access token:`, error);
+        throw error;
+      }
+    } else {
+      console.log(`[Auth][${config.id}] Using provided access token with fallback refresh capability`);
+    }
+
+    if (currentRefreshToken) {
+      tokenManager.setRefreshToken(currentRefreshToken);
+    }
+  } else if (currentToken) {
+    console.log(`[Auth][${config.id}] Using ACCESS_TOKEN-only mode`);
+    console.log(`[Auth][${config.id}] Note: Automatic token refresh requires MATRIX_USERNAME and MATRIX_PASSWORD`);
+  }
+
+  const promptText = await loadPromptText(config.prompt);
+  bot = new MorpheumBot(tokenManager, debugMode, {
+    id: config.id,
+    displayName: config.displayName,
+    systemPrompt: promptText,
+    llmOverrides: config.llm,
+  });
+
+  client = createMatrixClient(currentToken!, config.matrix.homeserverUrl, config.matrix.storagePath);
+  bot.setMatrixClient(client);
+
+  messageQueue = createMessageQueue(client);
+  setupClientHandlers(client, bot, tokenManager, messageQueue.queueMessage);
+  messageQueue.start();
+  await client.start();
+
+  const userId = await client.getUserId();
+  console.log(`[Startup] Bot ${config.id} online as ${userId}`);
+
+  return {
+    config,
+    bot,
+    client,
+    userId,
+    messageQueue,
+    tokenManager,
+  };
+}
 
 // Main execution function
 async function main() {
-  let bot: any;
-  let tokenManager: TokenManager | undefined;
-  let client: MatrixClient;
-  
-  // Handle registration if --register flag is provided
+  const configPath = process.env.MORPHEUM_BOTS_CONFIG;
+
+  if (parsedArgs.register && configPath) {
+    console.error("Error: --register is not supported when MORPHEUM_BOTS_CONFIG is set.");
+    process.exit(1);
+  }
+
+  if (!configPath && !process.env.HOMESERVER_URL) {
+    console.error("HOMESERVER_URL environment variable is required.");
+    process.exit(1);
+  }
+
+  const configs = await loadBotConfigs(configPath);
+
   if (parsedArgs.register) {
-    if (!username || !password) {
+    const primary = configs[0];
+    if (!primary.matrix.username || !primary.matrix.password) {
       console.error("Error: --register requires MATRIX_USERNAME and MATRIX_PASSWORD environment variables");
       console.error("These will be used to register the new user account");
       process.exit(1);
     }
-    
-    // Override homeserver URL if registering on a different server
+
     const registrationServer = parsedArgs.register;
-    effectiveHomeserverUrl = `https://${registrationServer}`;
-    
-    // Register the user first
-    await registerUser(registrationServer, username, password);
-    
-    // Update homeserver URL for subsequent operations
+    const effectiveHomeserverUrl = `https://${registrationServer}`;
+
+    await registerUser(registrationServer, primary.matrix.username, primary.matrix.password);
     console.log(`[Registration] Setting homeserver URL to ${effectiveHomeserverUrl} for login`);
-    process.env.HOMESERVER_URL = effectiveHomeserverUrl;
-  } else {
-    if (!homeserverUrl) {
-      console.error("HOMESERVER_URL environment variable is required.");
-      process.exit(1);
-    }
-    effectiveHomeserverUrl = homeserverUrl;
+    primary.matrix.homeserverUrl = effectiveHomeserverUrl;
   }
 
-// Require either ACCESS_TOKEN or both MATRIX_USERNAME and MATRIX_PASSWORD
-if (!accessToken && (!username || !password)) {
-  console.error(
-    "Either ACCESS_TOKEN or both MATRIX_USERNAME and MATRIX_PASSWORD environment variables are required.",
-  );
-  process.exit(1);
-}
-
-let currentToken = accessToken;
-let currentRefreshToken: string | undefined;
-
-// Setup token manager based on available credentials
-if (username && password) {
-  console.log("[Auth] Using username/password authentication with automatic token refresh");
-  
-  // If no initial token, get one now
-  if (!currentToken) {
-    console.log("[Auth] No initial access token provided, obtaining one...");
-    tokenManager = new TokenManager({
-      homeserverUrl: effectiveHomeserverUrl,
-      username,
-      password,
-    });
-    try {
-      const result = await tokenManager.getNewToken();
-      currentToken = result.access_token;
-      currentRefreshToken = result.refresh_token;
-      console.log("[Auth] Initial access token obtained successfully");
-      if (result.refresh_token) {
-        console.log("[Auth] Refresh token available for future use");
-      } else {
-        console.log("[Auth] No refresh token provided by server - will use password fallback");
-      }
-    } catch (error) {
-      console.error("[Auth] Failed to obtain initial access token:", error);
-      process.exit(1);
-    }
-  } else {
-    console.log("[Auth] Using provided access token with fallback refresh capability");
-  }
-  
-  // Setup token refresh callback
-  tokenManager = new TokenManager({
-    homeserverUrl: effectiveHomeserverUrl,
-    username,
-    password,
-    accessToken: currentToken,
-    onTokenRefresh: async (newToken: string, newRefreshToken?: string) => {
-      console.log("[Auth] Updating client with new access token");
-      currentToken = newToken;
-      currentRefreshToken = newRefreshToken;
-      // Stop the old client
-      await client.stop();
-      // Create new client with new token
-      client = createMatrixClient(newToken, effectiveHomeserverUrl);
-      // Update the Matrix client on the bot
-      bot.setMatrixClient(client);
-      setupClientHandlers(client, bot, tokenManager);
-      // Restart the client
-      await client.start();
-      console.log("[Auth] Client reconnected with new token");
-    }
+  LogService.setLevel(LogLevel.INFO);
+  LogService.setLogger({
+    info: (module, ...args) =>
+      console.log(new Date().toISOString(), "[INFO]", module, ...args),
+    warn: (module, ...args) =>
+      console.warn(new Date().toISOString(), "[WARN]", module, ...args),
+    error: (module, ...args) =>
+      console.error(new Date().toISOString(), "[ERROR]", module, ...args),
+    debug: (module, ...args) =>
+      console.debug(new Date().toISOString(), "[DEBUG]", ...args),
+    trace: (module, ...args) =>
+      console.trace(new Date().toISOString(), "[TRACE]", ...args),
   });
-  
-  // Set initial refresh token if we have one
-  if (currentRefreshToken) {
-    tokenManager.setRefreshToken(currentRefreshToken);
+
+  const runtimes = await Promise.all(configs.map((config) => createBotRuntime(config, parsedArgs.debug || false)));
+  const registry = runtimes.map((runtime) => ({
+    id: runtime.config.id,
+    displayName: runtime.config.displayName,
+    userId: runtime.userId,
+  }));
+
+  for (const runtime of runtimes) {
+    runtime.bot.setAvailableBots(registry);
   }
-} else if (accessToken) {
-  console.log("[Auth] Using ACCESS_TOKEN-only mode");
-  console.log("[Auth] Note: Automatic token refresh requires MATRIX_USERNAME and MATRIX_PASSWORD");
-  console.log("[Auth] To enable refresh tokens, set MATRIX_USERNAME and MATRIX_PASSWORD environment variables");
-  console.log("[Auth] Bot will continue with static token but may stop working when token expires");
-} else {
-  console.log("[Auth] Using static ACCESS_TOKEN (no automatic refresh)");
+
+  console.log(`Morpheum Bot started (${runtimes.length} identities).`);
 }
 
-// Create bot instance with tokenManager if available
-bot = new MorpheumBot(tokenManager, parsedArgs.debug);
-
-// Create initial client
-client = createMatrixClient(currentToken!, effectiveHomeserverUrl);
-
-// Set the Matrix client on the bot for project room functionality
-bot.setMatrixClient(client);
-
-// Before we start the client, let's set up a few things.
-
-// First, let's prepare the logger. We'll be using the simple console logger.
-LogService.setLevel(LogLevel.INFO);
-LogService.setLogger({
-  info: (module, ...args) =>
-    console.log(new Date().toISOString(), "[INFO]", module, ...args),
-  warn: (module, ...args) =>
-    console.warn(new Date().toISOString(), "[WARN]", module, ...args),
-  error: (module, ...args) =>
-    console.error(new Date().toISOString(), "[ERROR]", module, ...args),
-  debug: (module, ...args) =>
-    console.debug(new Date().toISOString(), "[DEBUG]", ...args),
-  trace: (module, ...args) =>
-    console.trace(new Date().toISOString(), "[TRACE]", ...args),
-});
-
-// Setup handlers for initial client
-setupClientHandlers(client, bot, tokenManager);
-
-// And now we can start the client.
-startMessageQueue(client);
-await client.start();
-console.log("Morpheum Bot started!");
-}
-
-function createMatrixClient(token: string, homeserverUrl: string): MatrixClient {
-  // We'll want to make sure the bot doesn't have to do an initial sync every
-  // time it restarts, so we need to prepare a storage provider. Here we use
-  // a simple file storage provider.
-  const storage = new SimpleFsStorageProvider("bot.json");
-  
-  // Now we can create the client.
+function createMatrixClient(token: string, homeserverUrl: string, storagePath: string): MatrixClient {
+  const storage = new SimpleFsStorageProvider(storagePath);
   const matrixClient = new MatrixClient(homeserverUrl, token, storage);
-  
-  // Setup the autojoin mixin
   AutojoinRoomsMixin.setupOnClient(matrixClient);
-  
   return matrixClient;
 }
 
-function setupClientHandlers(matrixClient: MatrixClient, bot: any, tokenManager?: TokenManager) {
-  // Set up a command handler with token refresh capability
+function setupClientHandlers(
+  matrixClient: MatrixClient,
+  bot: MorpheumBot,
+  tokenManager: TokenManager | undefined,
+  queueMessage: (roomId: string, content: any) => void,
+) {
   matrixClient.on("room.message", async (roomId, event) => {
     const wrappedHandler = async () => {
       const userId = await matrixClient.getUserId();
@@ -317,14 +337,14 @@ function setupClientHandlers(matrixClient: MatrixClient, bot: any, tokenManager?
 
       const sendMessage = async (message: string, html?: string) => {
         if (html) {
-          await queueMessage(roomId, {
+          queueMessage(roomId, {
             msgtype: "m.text",
             body: message,
             format: "org.matrix.custom.html",
             formatted_body: html,
           });
         } else {
-          await queueMessage(roomId, {
+          queueMessage(roomId, {
             msgtype: "m.text",
             body: message,
           });
@@ -341,23 +361,23 @@ function setupClientHandlers(matrixClient: MatrixClient, bot: any, tokenManager?
         const lowerBody = body.toLowerCase();
 
         for (const name of mentionNames) {
-          // Check for exact name match followed by a delimiter or end of string
-          if (lowerBody === name || 
-              lowerBody.startsWith(name + ' ') ||
-              lowerBody.startsWith(name + ':') ||
-              lowerBody.startsWith(name + ',') ||
-              lowerBody.startsWith(name + '\t') ||
-              lowerBody.startsWith(name + '\n')) {
+          if (
+            lowerBody === name ||
+            lowerBody.startsWith(name + ' ') ||
+            lowerBody.startsWith(name + ':') ||
+            lowerBody.startsWith(name + ',') ||
+            lowerBody.startsWith(name + '\t') ||
+            lowerBody.startsWith(name + '\n')
+          ) {
             let task = body.substring(name.length).trim();
             if (task.startsWith(':') || task.startsWith(',')) {
               task = task.substring(1).trim();
             }
-            
+
             if (task) {
               await bot.processMessage(task, event.sender, sendMessage, roomId);
               return;
             } else if (lowerBody === name) {
-              // Handle case where bot is mentioned without a task
               await bot.processMessage('!help', event.sender, sendMessage, roomId);
               return;
             }
@@ -372,7 +392,6 @@ function setupClientHandlers(matrixClient: MatrixClient, bot: any, tokenManager?
       }
     };
 
-    // Wrap the handler with token refresh if available
     if (tokenManager) {
       const wrappedWithRefresh = tokenManager.withTokenRefresh(wrappedHandler);
       try {

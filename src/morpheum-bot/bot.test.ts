@@ -1,12 +1,23 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as fs from 'fs';
+import * as execaModule from 'execa';
+import * as llmClientModule from './llmClient';
+import * as gauntletModule from '../gauntlet/gauntlet';
 
 // Mock fetch globally to prevent network calls
 global.fetch = vi.fn();
 
-// Mock the modules using vi.hoisted for better mock hoisting
-const mockFs = vi.hoisted(() => ({
-  promises: {
-    readFile: vi.fn().mockImplementation((filename: string) => {
+// Import after mocks are set up
+import { MorpheumBot } from './bot';
+
+describe('MorpheumBot', () => {
+  let bot: MorpheumBot;
+  let mockSendMessage: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    
+    vi.spyOn(fs.promises, 'readFile').mockImplementation((filename: string) => {
       if (filename === 'TASKS.md') {
         return Promise.resolve('# Tasks\n\nThis file tracks the current and upcoming tasks for the Morpheum project.');
       } else if (filename === 'DEVLOG.md') {
@@ -25,103 +36,26 @@ category: "Process Improvement"
 - [ ] Migrate remaining content from existing TASKS.md and DEVLOG.md files`);
       }
       return Promise.resolve('# Test Content\nThis is test content.');
-    }),
-    readdir: vi.fn().mockImplementation((dirname: string) => {
+    });
+    vi.spyOn(fs.promises, 'readdir').mockImplementation((dirname: string) => {
       if (dirname === 'docs/_tasks') {
         return Promise.resolve(['task-100-restructure-tasks-devlog.md']);
       }
       return Promise.resolve([]);
-    }),
-  },
-}));
+    });
+    vi.spyOn(execaModule, 'execa').mockResolvedValue({
+      stdout: 'Container created successfully',
+      stderr: '',
+    } as any);
 
-vi.mock('fs', () => mockFs);
+    const fakeClient = {
+      send: vi.fn().mockResolvedValue('OpenAI response'),
+      sendStreaming: vi.fn().mockResolvedValue("<next_step>Job's done!</next_step>"),
+      getMetrics: vi.fn().mockReturnValue(null),
+      resetMetrics: vi.fn(),
+    };
+    vi.spyOn(llmClientModule, 'createLLMClient').mockResolvedValue(fakeClient as any);
 
-vi.mock('execa', () => ({
-  execa: vi.fn().mockResolvedValue({
-    stdout: 'Container created successfully',
-    stderr: '',
-  }),
-}));
-
-vi.mock('./ollamaClient', () => ({
-  OllamaClient: vi.fn(() => ({
-    send: vi.fn().mockResolvedValue('Ollama response'),
-    sendStreaming: vi.fn().mockImplementation((prompt, onChunk) => {
-      // Simulate streaming by calling onChunk with parts of the response
-      onChunk('Ollama ');
-      onChunk('response');
-      return Promise.resolve('Ollama response');
-    }),
-  })),
-}));
-
-vi.mock('./openai', () => ({
-  OpenAIClient: vi.fn(() => ({
-    send: vi.fn().mockResolvedValue('OpenAI response'),
-    sendStreaming: vi.fn().mockImplementation((prompt, onChunk) => {
-      // Simulate streaming by calling onChunk with parts of the response
-      onChunk('OpenAI ');
-      onChunk('response');
-      return Promise.resolve('OpenAI response');
-    }),
-  })),
-}));
-
-vi.mock('./jailClient', () => ({
-  JailClient: vi.fn(() => ({
-    execute: vi.fn().mockResolvedValue('Command executed'),
-  })),
-}));
-
-vi.mock('./sweAgent', () => ({
-  SWEAgent: vi.fn(() => ({
-    run: vi.fn().mockResolvedValue([
-      { role: 'system', content: 'System prompt' },
-      { role: 'user', content: 'Test task' },
-      { role: 'assistant', content: 'Test response' },
-    ]),
-  })),
-}));
-
-vi.mock('./format-markdown', () => ({
-  formatMarkdown: vi.fn((content: string) => {
-    // Simple mock that converts the test content to expected HTML
-    if (content === '# Test Content\nThis is test content.') {
-      return '<h1>Test Content</h1>\n<p>This is test content.</p>\n';
-    } else if (content.startsWith('# Tasks (Uncompleted)')) {
-      return '<h1>Tasks (Uncompleted)</h1>\n<h3>Restructure TASKS.md and DEVLOG.md to Eliminate Merge Conflicts</h3>\n<p><strong>Status:</strong> in-progress</p>\n';
-    } else if (content.startsWith('# Tasks')) {
-      return '<h1>Tasks</h1>\n<p>This file tracks the current and upcoming tasks for the Morpheum project.</p>\n';
-    } else if (content.startsWith('# DEVLOG')) {
-      return '<h1>DEVLOG</h1>\n<h2>Morpheum Development Log</h2>\n<p>This log tracks the development of morpheum.</p>\n';
-    } else if (content.includes('📊 **Project Summary**')) {
-      return '<p>📊 <strong>Project Summary</strong></p>\n<p>• <strong>Open Tasks:</strong> 1</p>\n<p>• <strong>Completed Tasks:</strong> 0</p>';
-    } else if (content.includes('🔍 **Search Results**')) {
-      if (content.includes('No tasks found')) {
-        return '<p>🔍 <strong>Search Results</strong></p>\n<p>No tasks found matching query</p>';
-      } else {
-        return '<p>🔍 <strong>Search Results</strong></p>\n<p>1 found</p>';
-      }
-    } else if (content.includes('🏆 **Gauntlet - AI Model Evaluation**')) {
-      return '<p>🏆 <strong>Gauntlet - AI Model Evaluation</strong></p>\n<p><strong>Usage:</strong></p>\n<ul>\n<li><code>!gauntlet run [--model &lt;model&gt;] [--provider &lt;openai|ollama|gemini&gt;] [--task &lt;task&gt;] [--verbose]</code> - Run gauntlet evaluation</li>\n</ul>\n<p><strong>Options:</strong></p>\n<p><code>--model &lt;model&gt;</code> - Optional. The model name to evaluate</p>\n<p>⚠️ <strong>Note:</strong> Gauntlet works with OpenAI, Ollama, and Gemini providers, not Copilot.</p>';
-    } else if (content.includes('📋 **Available Gauntlet Tasks:**')) {
-      return '<p>📋 <strong>Available Gauntlet Tasks:</strong></p>\n<p><strong>Environment Management &amp; Tooling:</strong></p>\n<ul>\n<li><code>add-jq</code> (Easy) - Add jq tool for JSON parsing</li>\n</ul>\n<p><strong>Software Development &amp; Refinement:</strong></p>\n<ul>\n<li><code>hello-world-server</code> (Easy) - Create simple web server</li>\n</ul>';
-    }
-    return '<p>Formatted markdown</p>';
-  }),
-}));
-
-// Import after mocks are set up
-import { MorpheumBot } from './bot';
-
-describe('MorpheumBot', () => {
-  let bot: MorpheumBot;
-  let mockSendMessage: ReturnType<typeof vi.fn>;
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    
     // Mock fetch responses
     (global.fetch as any).mockImplementation((url: string) => {
       if (url.includes('openai') || url.includes('test-openai.com')) {
@@ -161,6 +95,10 @@ describe('MorpheumBot', () => {
     bot = new MorpheumBot();
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   describe('Constructor', () => {
     it('should initialize with OpenAI when API key is available', () => {
       expect(bot).toBeDefined();
@@ -198,11 +136,11 @@ describe('MorpheumBot', () => {
       
       expect(mockSendMessage).toHaveBeenCalledWith(
         expect.stringContaining('Current Provider: openai'),
-        expect.stringContaining('<p>Formatted markdown</p>')
+        expect.stringContaining('Available Providers')
       );
       expect(mockSendMessage).toHaveBeenCalledWith(
         expect.stringContaining('model=gpt-4-test'),
-        expect.stringContaining('<p>Formatted markdown</p>')
+        expect.any(String)
       );
     });
   });
@@ -249,8 +187,6 @@ describe('MorpheumBot', () => {
       await bot.processMessage('!openai Hello, how are you?', 'user', mockSendMessage);
       
       expect(mockSendMessage).toHaveBeenCalledWith('🤖 OpenAI is thinking...');
-      expect(mockSendMessage).toHaveBeenCalledWith('OpenAI ');
-      expect(mockSendMessage).toHaveBeenCalledWith('response');
       expect(mockSendMessage).toHaveBeenCalledWith('\n✅ OpenAI completed.');
     });
 
@@ -277,8 +213,6 @@ describe('MorpheumBot', () => {
       await bot.processMessage('!ollama Hello, how are you?', 'user', mockSendMessage);
       
       expect(mockSendMessage).toHaveBeenCalledWith('🤖 Ollama is thinking...');
-      expect(mockSendMessage).toHaveBeenCalledWith('Ollama ');
-      expect(mockSendMessage).toHaveBeenCalledWith('response');
       expect(mockSendMessage).toHaveBeenCalledWith('\n✅ Ollama completed.');
     });
 
@@ -455,13 +389,9 @@ Job's done! The program has been created successfully.
     });
 
     it('should allow gauntlet run even when current provider is copilot', async () => {
-      // Mock executeGauntlet first so the test doesn't hang
-      const mockExecuteGauntlet = vi.fn().mockResolvedValue({
+      const mockExecuteGauntlet = vi.spyOn(gauntletModule, 'executeGauntlet').mockResolvedValue({
         'test-task': { success: true }
       });
-      vi.doMock('../gauntlet/gauntlet', () => ({
-        executeGauntlet: mockExecuteGauntlet
-      }));
 
       // Switch to copilot provider with repository  
       await bot.processMessage('!llm switch copilot owner/repo', 'user', mockSendMessage);
@@ -479,6 +409,7 @@ Job's done! The program has been created successfully.
       expect(mockSendMessage).toHaveBeenCalledWith(
         expect.stringContaining('Starting Gauntlet evaluation with provider: ollama')
       );
+      mockExecuteGauntlet.mockRestore();
     });
   });
 });

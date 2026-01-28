@@ -1,45 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as fs from 'fs';
+import * as llmClientModule from './llmClient';
 
 /**
  * Integration test for bot mention handling.
  * Tests the actual message processing logic that would be triggered in a Matrix room.
  */
-
-// Mock the dependencies
-vi.mock('fs', () => ({
-  promises: {
-    readFile: vi.fn().mockResolvedValue('# Test Content'),
-    readdir: vi.fn().mockResolvedValue([]),
-  },
-}));
-
-vi.mock('execa', () => ({
-  execa: vi.fn().mockResolvedValue({ stdout: 'test', stderr: '' }),
-}));
-
-vi.mock('./ollamaClient', () => ({
-  OllamaClient: vi.fn(() => ({
-    send: vi.fn().mockResolvedValue('Ollama response'),
-    sendStreaming: vi.fn().mockResolvedValue('Ollama response'),
-  })),
-}));
-
-vi.mock('./jailClient', () => ({
-  JailClient: vi.fn(() => ({
-    execute: vi.fn().mockResolvedValue('Command executed'),
-  })),
-}));
-
-vi.mock('./sweAgent', () => ({
-  SWEAgent: vi.fn(() => ({
-    run: vi.fn().mockResolvedValue([]),
-    currentJailClient: { execute: vi.fn() },
-  })),
-}));
-
-vi.mock('./format-markdown', () => ({
-  formatMarkdown: vi.fn((content: string) => `<p>${content}</p>`),
-}));
 
 import { MorpheumBot } from './bot';
 
@@ -104,7 +70,20 @@ describe('Bot Mention Integration', () => {
     process.env.OLLAMA_API_URL = 'http://test-ollama:11434';
     process.env.OLLAMA_MODEL = 'test-model';
     
+    vi.spyOn(fs.promises, 'readFile').mockResolvedValue('# Test Content');
+    vi.spyOn(fs.promises, 'readdir').mockResolvedValue([]);
+    vi.spyOn(llmClientModule, 'createLLMClient').mockResolvedValue({
+      send: vi.fn().mockResolvedValue('response'),
+      sendStreaming: vi.fn().mockResolvedValue("<next_step>Job's done!</next_step>"),
+      getMetrics: vi.fn().mockReturnValue(null),
+      resetMetrics: vi.fn(),
+    } as any);
+
     mockSendMessage = vi.fn().mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   describe('Exact Mention Response', () => {

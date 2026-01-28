@@ -1,22 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MorpheumBot } from './bot';
-
-// Mock dependencies
-vi.mock('./sweAgent');
-vi.mock('./jailClient');
-
-// Mock ProjectRoomManager to capture what arguments are passed
-const mockCreateProjectRoom = vi.fn();
-vi.mock('./project-room-manager', () => {
-  return {
-    ProjectRoomManager: vi.fn().mockImplementation(() => ({
-      createProjectRoom: mockCreateProjectRoom,
-      inviteUserToRoom: vi.fn().mockResolvedValue({ success: true }),
-      getProjectConfig: vi.fn().mockResolvedValue({ repository: 'test/repo' }),
-      sendWelcomeMessage: vi.fn().mockResolvedValue(undefined),
-    }))
-  };
-});
+import { ProjectRoomManager } from './project-room-manager';
 
 // Mock MatrixClient  
 const mockMatrixClient = {
@@ -30,9 +14,15 @@ const mockMatrixClient = {
 describe('Issue #157 Fix: Unicode dash normalization in project create', () => {
   let bot: MorpheumBot;
   let mockSendMessage: any;
+  let mockCreateProjectRoom: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockCreateProjectRoom = vi.fn();
+    vi.spyOn(ProjectRoomManager.prototype, 'createProjectRoom').mockImplementation(mockCreateProjectRoom);
+    vi.spyOn(ProjectRoomManager.prototype, 'inviteUserToRoom').mockResolvedValue({ success: true });
+    vi.spyOn(ProjectRoomManager.prototype, 'getProjectConfig').mockResolvedValue({ repository: 'test/repo' } as any);
+    vi.spyOn(ProjectRoomManager.prototype, 'sendWelcomeMessage').mockResolvedValue(undefined);
     bot = new MorpheumBot();
     bot.setMatrixClient(mockMatrixClient as any);
     mockSendMessage = vi.fn();
@@ -43,6 +33,10 @@ describe('Issue #157 Fix: Unicode dash normalization in project create', () => {
       roomId: '!test:example.com',
       projectName: 'test-project'
     });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('should handle em dash —new correctly (issue #157)', async () => {

@@ -1,5 +1,4 @@
 import * as sdk from 'matrix-js-sdk';
-import { MatrixClient, MatrixError } from 'matrix-bot-sdk';
 
 export interface TokenManagerConfig {
   homeserverUrl: string;
@@ -152,12 +151,13 @@ export class TokenManager {
    * Check if an error indicates token expiration/invalidity
    */
   isTokenError(error: any): boolean {
-    if (error instanceof MatrixError) {
-      return error.errcode === 'M_UNKNOWN_TOKEN' || 
-             error.errcode === 'M_MISSING_TOKEN' ||
-             error.errcode === 'M_FORBIDDEN';
+    const errcode = (error as any)?.errcode;
+    if (typeof errcode !== 'string') {
+      return false;
     }
-    return false;
+    return errcode === 'M_UNKNOWN_TOKEN' ||
+           errcode === 'M_MISSING_TOKEN' ||
+           errcode === 'M_FORBIDDEN';
   }
 
   /**

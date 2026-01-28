@@ -13,8 +13,27 @@ import { ProjectRoomManager, ProjectRoomConfig, ProjectRoomCreationOptions } fro
 import { parseGitUrl } from "./git-url-parser";
 import { MatrixClient } from "matrix-bot-sdk";
 import { OAuthManager } from "./oauth/manager";
+import { SYSTEM_PROMPT } from "./prompts";
+import { randomUUID } from "crypto";
 
 type MessageSender = (message: string, html?: string) => Promise<void>;
+
+export interface BotRegistryEntry {
+  id: string;
+  displayName?: string;
+  userId?: string;
+}
+
+export interface BotPersonaOptions {
+  id?: string;
+  displayName?: string;
+  systemPrompt?: string;
+  llmOverrides?: {
+    provider?: 'openai' | 'ollama' | 'copilot' | 'gemini';
+    model?: string;
+    baseUrl?: string;
+  };
+}
 
 // Helper function to detect if text contains any markdown formatting
 function hasMarkdown(text: string): boolean {
@@ -58,6 +77,10 @@ export class MorpheumBot {
   private matrixClient?: MatrixClient;
   private projectRoomManager?: ProjectRoomManager;
   private debugMode: boolean;
+  private personaId: string;
+  private personaDisplayName?: string;
+  private systemPrompt: string;
+  private availableBots: BotRegistryEntry[] = [];
 
   private currentLLMClient?: LLMClient;
   private currentLLMClientPromise?: Promise<LLMClient>;
@@ -73,9 +96,12 @@ export class MorpheumBot {
   // Per-room configurations for project rooms
   private roomConfigs: Map<string, ProjectRoomConfig> = new Map();
 
-  constructor(tokenManager?: TokenManager, debugMode: boolean = false) {
+  constructor(tokenManager?: TokenManager, debugMode: boolean = false, options?: BotPersonaOptions) {
     this.tokenManager = tokenManager;
     this.debugMode = debugMode;
+    this.personaId = options?.id || 'default';
+    this.personaDisplayName = options?.displayName;
+    this.systemPrompt = options?.systemPrompt || SYSTEM_PROMPT;
     
     // Initialize LLM configurations from environment variables
     const openaiConfig: { apiKey?: string; model: string; baseUrl: string } = {
@@ -117,6 +143,18 @@ export class MorpheumBot {
 
     // Default to Ollama if no OpenAI key is provided
     this.currentLLMProvider = this.llmConfig.openai.apiKey ? 'openai' : 'ollama';
+
+    const overrideProvider = options?.llmOverrides?.provider;
+    const providerToOverride = overrideProvider || this.currentLLMProvider;
+    if (overrideProvider) {
+      this.currentLLMProvider = overrideProvider;
+    }
+    if (options?.llmOverrides?.model) {
+      this.llmConfig[providerToOverride].model = options.llmOverrides.model;
+    }
+    if (options?.llmOverrides?.baseUrl) {
+      this.llmConfig[providerToOverride].baseUrl = options.llmOverrides.baseUrl;
+    }
     
     const jailHost = process.env.JAIL_HOST || "localhost";
     const jailPort = parseInt(process.env.JAIL_PORT || "10001", 10);
@@ -130,6 +168,10 @@ export class MorpheumBot {
     this.matrixClient = matrixClient;
     const githubToken = process.env.GITHUB_TOKEN || this.llmConfig.copilot.apiKey;
     this.projectRoomManager = new ProjectRoomManager(matrixClient, githubToken);
+  }
+
+  setAvailableBots(bots: BotRegistryEntry[]): void {
+    this.availableBots = bots;
   }
 
   /**
@@ -254,7 +296,7 @@ export class MorpheumBot {
   private async getSWEAgent(): Promise<SWEAgent> {
     const client = await this.getLLMClient();
     if (!this.sweAgent || this.sweAgentClient !== client) {
-      this.sweAgent = new SWEAgent(client, this.jailClient);
+      this.sweAgent = new SWEAgent(client, this.jailClient, this.systemPrompt);
       this.sweAgentClient = client;
     }
     return this.sweAgent;
@@ -300,7 +342,7 @@ export class MorpheumBot {
       const newJailClient = new JailClient(jailHost, parseInt(port, 10));
       this.jailClient = newJailClient;
       const client = await this.getLLMClient();
-      this.sweAgent = new SWEAgent(client, newJailClient);
+      this.sweAgent = new SWEAgent(client, newJailClient, this.systemPrompt);
       this.sweAgentClient = client;
       await sendMessage(
         `Agent reset to talk to the new container on port ${port}`,
@@ -324,6 +366,9 @@ Available commands:
 - \`!devlog\` - Show development log
 - \`!tokens\` - Show Matrix authentication token status
 - \`!token refresh\` - Manually refresh Matrix authentication token
+- \`!bot list\` - List available bot identities in this process
+- \`!bot whoami\` - Show the current bot identity
+- \`!bot request <bot-id> <task>\` - Post a delegation request to another bot
 - \`!llm status\` - Show current LLM provider and configuration
 - \`!llm switch openai [model] [baseUrl]\` - Switch to OpenAI (requires OPENAI_API_KEY env var)
 - \`!llm switch ollama [model] [baseUrl]\` - Switch to Ollama
@@ -355,6 +400,8 @@ For regular tasks, just type your request without a command prefix.`;
       await this.handleTokensCommand(sendMessage);
     } else if (body.startsWith("!token refresh")) {
       await this.handleTokenRefreshCommand(sendMessage);
+    } else if (body.startsWith("!bot")) {
+      await this.handleBotCommand(body, sendMessage);
     } else if (body.startsWith("!llm")) {
       await this.handleLLMCommand(body, sendMessage, roomId);
     } else if (body.startsWith("!openai")) {
@@ -366,6 +413,71 @@ For regular tasks, just type your request without a command prefix.`;
     } else if (body.startsWith("!gauntlet")) {
       await this.handleGauntletCommand(body, sendMessage);
     }
+  }
+
+  private async handleBotCommand(body: string, sendMessage: MessageSender): Promise<void> {
+    const parts = body.split(' ');
+    const subcommand = parts[1];
+
+    if (!subcommand || subcommand === 'help') {
+      await sendMessage(
+        'Usage: !bot <list|whoami|request>\\n' +
+          '- !bot list\\n' +
+          '- !bot whoami\\n' +
+          '- !bot request <bot-id> <task>'
+      );
+      return;
+    }
+
+    if (subcommand === 'list') {
+      if (!this.availableBots.length) {
+        await sendMessage('No bot registry entries available.');
+        return;
+      }
+
+      const entries = this.availableBots
+        .map((bot) => {
+          const label = bot.displayName ? `${bot.id} (${bot.displayName})` : bot.id;
+          const mention = bot.userId ? ` -> ${bot.userId}` : '';
+          return `- ${label}${mention}`;
+        })
+        .join('\n');
+
+      await sendMessage(`Available bots:\\n${entries}`);
+      return;
+    }
+
+    if (subcommand === 'whoami') {
+      const label = this.personaDisplayName ? `${this.personaId} (${this.personaDisplayName})` : this.personaId;
+      await sendMessage(`Current bot identity: ${label}`);
+      return;
+    }
+
+    if (subcommand === 'request') {
+      const target = parts[2];
+      const task = parts.slice(3).join(' ').trim();
+
+      if (!target || !task) {
+        await sendMessage('Usage: !bot request <bot-id> <task>');
+        return;
+      }
+
+      const normalizedTarget = target.toLowerCase();
+      const targetEntry = this.availableBots.find((bot) =>
+        bot.id.toLowerCase() === normalizedTarget ||
+        (bot.userId && bot.userId.toLowerCase() === normalizedTarget) ||
+        (bot.displayName && bot.displayName.toLowerCase() === normalizedTarget)
+      );
+
+      const mention = targetEntry?.userId || target;
+      const taskId = randomUUID();
+      const requester = this.personaDisplayName || this.personaId;
+      const requestText = `${mention} Request: ${task} (from ${requester}, id: ${taskId})`;
+      await sendMessage(requestText);
+      return;
+    }
+
+    await sendMessage('Usage: !bot <list|whoami|request>');
   }
 
   private async handleLLMCommand(body: string, sendMessage: MessageSender, roomId?: string) {
@@ -1294,7 +1406,7 @@ ${contributorsList}${contributorsNote}
       this.llmConfig.copilot.repository = originalConfig.repository;
       this.currentLLMClient = originalConfig.client;
       this.currentLLMClientPromise = Promise.resolve(originalConfig.client);
-      this.sweAgent = new SWEAgent(originalConfig.client, this.jailClient);
+      this.sweAgent = new SWEAgent(originalConfig.client, this.jailClient, this.systemPrompt);
       this.sweAgentClient = originalConfig.client;
     } catch (error) {
       console.error('[ProjectRoom] Failed to restore original configuration:', error);

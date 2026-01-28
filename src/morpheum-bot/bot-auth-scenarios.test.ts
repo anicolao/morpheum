@@ -1,15 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-
-// Mock dependencies before importing
-vi.mock('matrix-bot-sdk');
-vi.mock('matrix-js-sdk');
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 describe('Bot Authentication Scenarios', () => {
   let originalEnv: NodeJS.ProcessEnv;
 
   beforeEach(() => {
     originalEnv = process.env;
-    vi.resetModules();
   });
 
   afterEach(() => {

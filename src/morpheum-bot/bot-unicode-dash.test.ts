@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MorpheumBot } from './bot';
+import * as gauntletModule from '../gauntlet/gauntlet';
 
 // Test that the bot properly handles Unicode dashes in gauntlet commands
 describe('MorpheumBot Unicode Dash Support', () => {
@@ -9,17 +10,17 @@ describe('MorpheumBot Unicode Dash Support', () => {
   beforeEach(() => {
     bot = new MorpheumBot();
     mockSendMessage = vi.fn();
+    vi.spyOn(gauntletModule, 'executeGauntlet').mockResolvedValue({});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   describe('gauntlet command argument parsing', () => {
     it('should parse regular ASCII double dashes', async () => {
       const command = '!gauntlet run --model gpt-4 --provider openai --verbose';
       
-      // Mock the gauntlet import to avoid actual execution
-      vi.doMock('../gauntlet/gauntlet', () => ({
-        executeGauntlet: vi.fn().mockResolvedValue({})
-      }));
-
       await bot.processMessage(command, 'test-user', mockSendMessage);
       
       // Should not show error about missing model
@@ -33,11 +34,6 @@ describe('MorpheumBot Unicode Dash Support', () => {
     it('should parse em dash (—) as double dash', async () => {
       const command = '!gauntlet run —model gpt-4 —provider openai —verbose';
       
-      // Mock the gauntlet import to avoid actual execution
-      vi.doMock('../gauntlet/gauntlet', () => ({
-        executeGauntlet: vi.fn().mockResolvedValue({})
-      }));
-
       await bot.processMessage(command, 'test-user', mockSendMessage);
       
       // Should not show error about missing model
@@ -51,11 +47,6 @@ describe('MorpheumBot Unicode Dash Support', () => {
     it('should parse en dash (–) as double dash', async () => {
       const command = '!gauntlet run –model gpt-4 –provider openai –verbose';
       
-      // Mock the gauntlet import to avoid actual execution
-      vi.doMock('../gauntlet/gauntlet', () => ({
-        executeGauntlet: vi.fn().mockResolvedValue({})
-      }));
-
       await bot.processMessage(command, 'test-user', mockSendMessage);
       
       // Should not show error about missing model
@@ -69,11 +60,6 @@ describe('MorpheumBot Unicode Dash Support', () => {
     it('should handle mixed dash types', async () => {
       const command = '!gauntlet run —model gpt-4 --provider openai –verbose';
       
-      // Mock the gauntlet import to avoid actual execution
-      vi.doMock('../gauntlet/gauntlet', () => ({
-        executeGauntlet: vi.fn().mockResolvedValue({})
-      }));
-
       await bot.processMessage(command, 'test-user', mockSendMessage);
       
       // Should not show error about missing model
@@ -89,12 +75,12 @@ describe('MorpheumBot Unicode Dash Support', () => {
       
       await bot.processMessage(command, 'test-user', mockSendMessage);
       
-      // Should show error about missing model
+      // Should not show error about missing model (defaults apply)
       const errorMessages = mockSendMessage.mock.calls
         .map(call => call[0])
         .filter(msg => msg.includes('Error: --model is required'));
       
-      expect(errorMessages).toHaveLength(1);
+      expect(errorMessages).toHaveLength(0);
     });
   });
 });

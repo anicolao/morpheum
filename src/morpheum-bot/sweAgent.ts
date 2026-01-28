@@ -10,9 +10,10 @@ export class SWEAgent {
 
   constructor(
     private readonly llmClient: LLMClient,
-    private readonly jailClient: JailClient
+    private readonly jailClient: JailClient,
+    systemPrompt: string = SYSTEM_PROMPT,
   ) {
-    this.conversationHistory.push({ role: 'system', content: SYSTEM_PROMPT });
+    this.conversationHistory.push({ role: 'system', content: systemPrompt });
   }
 
   get currentJailClient(): JailClient {

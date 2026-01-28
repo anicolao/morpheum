@@ -18,6 +18,8 @@ docs/Gemfile.lock
 
 # Bot generated files
 bot.json
+bot.json.bak
+*.ollama
 src/morpheum-bot/*.js
 src/morpheum-bot/*.js.map
 src/morpheum-bot/*.d.ts
@@ -34,3 +36,4 @@ jail/*.js.map
 .env
 GoogleOAuthCredentails*.json
 jail/codex-tmp/
+jail/.codex-tmp.disabled/

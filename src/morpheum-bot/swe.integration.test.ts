@@ -1,4 +1,5 @@
-import { MatrixClient } from "matrix-bot-sdk";
+import * as matrixSdk from "matrix-bot-sdk";
+import type { MatrixClient } from "matrix-bot-sdk";
 import { SWEAgent } from "./sweAgent";
 import { OllamaClient } from "./ollamaClient";
 import { JailClient } from "./jailClient";
@@ -10,7 +11,7 @@ describe("Matrix Bot SWE Integration", () => {
   let sweAgent: SWEAgent;
 
   beforeEach(() => {
-    client = new MatrixClient("http://localhost", "token");
+    client = new (matrixSdk as any).MatrixClient("http://localhost", "token");
     const ollamaClient = new OllamaClient("", "");
     const jailClient = new JailClient("", 0);
     sweAgent = new SWEAgent(ollamaClient, jailClient);

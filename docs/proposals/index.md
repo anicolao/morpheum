@@ -18,6 +18,14 @@ This section contains active and archived design proposals for the Morpheum proj
 
 [View Full Proposal](/proposals/project-rooms/) | [GitHub Document](https://github.com/anicolao/morpheum/blob/main/PROJECT_ROOMS.md)
 
+### Multi-Identity Matrix Bots
+
+- **Status**: Draft
+- **Type**: Feature Enhancement
+- **Description**: Support multiple Matrix identities with per-bot prompts, optional LLM overrides, and bot-to-bot delegation.
+
+[View Full Proposal](/proposals/multi-identity-matrix-bots/) | [GitHub Document](https://github.com/anicolao/morpheum/blob/main/MULTI_IDENTITY_MATRIX_BOTS.md)
+
 ### Project Tracking and Management Enhancement
 
 - **Status**: Under Review

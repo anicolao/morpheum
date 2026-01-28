@@ -1,42 +1,8 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { MorpheumBot } from './bot';
-import { MatrixClient } from 'matrix-bot-sdk';
+import type { MatrixClient } from 'matrix-bot-sdk';
 import { ProjectRoomConfig } from './project-room-manager';
-
-// Mock the LLM clients to avoid network calls
-vi.mock('./copilotClient', () => ({
-  CopilotClient: vi.fn().mockImplementation(() => ({
-    sendStreaming: vi.fn().mockImplementation(async (prompt: string, onChunk: (chunk: string) => void) => {
-      // Simulate a streaming response
-      onChunk('Mocked response for: ');
-      onChunk(prompt);
-      return 'Mocked Copilot response';
-    }),
-    getMetrics: vi.fn().mockReturnValue(null),
-    resetMetrics: vi.fn()
-  }))
-}));
-
-vi.mock('./ollamaClient', () => ({
-  OllamaClient: vi.fn().mockImplementation(() => ({
-    sendStreaming: vi.fn().mockImplementation(async (prompt: string, onChunk: (chunk: string) => void) => {
-      // Simulate a streaming response
-      onChunk('Mocked Ollama response for: ');
-      onChunk(prompt);
-      return 'Mocked Ollama response';
-    }),
-    getMetrics: vi.fn().mockReturnValue(null),
-    resetMetrics: vi.fn()
-  }))
-}));
-
-vi.mock('./sweAgent', () => ({
-  SWEAgent: vi.fn().mockImplementation(() => ({
-    currentJailClient: {
-      execute: vi.fn().mockResolvedValue('Mocked jail output')
-    }
-  }))
-}));
+import * as llmClientModule from './llmClient';
 
 describe('MorpheumBot - Room-specific Configuration', () => {
   let bot: MorpheumBot;
@@ -47,6 +13,16 @@ describe('MorpheumBot - Room-specific Configuration', () => {
     // Set up environment variables for testing
     process.env.GITHUB_TOKEN = 'test-token';
     process.env.COPILOT_REPOSITORY = 'global/default';
+    process.env.OLLAMA_MODEL = 'morpheum-local';
+    process.env.OLLAMA_API_URL = 'http://localhost:11434';
+    delete process.env.OPENAI_API_KEY;
+
+    vi.spyOn(llmClientModule, 'createLLMClient').mockResolvedValue({
+      sendStreaming: vi.fn().mockResolvedValue("<next_step>Job's done!</next_step>"),
+      send: vi.fn().mockResolvedValue('Mocked response'),
+      getMetrics: vi.fn().mockReturnValue(null),
+      resetMetrics: vi.fn(),
+    } as any);
     
     bot = new MorpheumBot();
     
@@ -58,6 +34,10 @@ describe('MorpheumBot - Room-specific Configuration', () => {
     bot.setMatrixClient(mockMatrixClient);
     
     mockSendMessage = vi.fn().mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('should use project-specific configuration in project rooms', async () => {
