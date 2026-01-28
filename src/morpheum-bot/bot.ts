@@ -1446,9 +1446,8 @@ ${contributorsList}${contributorsNote}
     const MAX_ITERATIONS = 10;
     const conversationHistory: { role: string; content: string }[] = [];
     
-    // For non-Copilot providers, we include the system prompt for proper context
-    const { SYSTEM_PROMPT } = await import('./prompts');
-    conversationHistory.push({ role: 'system', content: SYSTEM_PROMPT });
+    // For non-Copilot providers, we include the persona prompt for proper context
+    conversationHistory.push({ role: 'system', content: this.systemPrompt });
     conversationHistory.push({ role: 'user', content: task });
 
     for (let i = 0; i < MAX_ITERATIONS; i++) {
