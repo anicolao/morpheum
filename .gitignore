@@ -20,6 +20,7 @@ docs/Gemfile.lock
 bot.json
 bot.json.bak
 *.ollama
+bot.*.json
 src/morpheum-bot/*.js
 src/morpheum-bot/*.js.map
 src/morpheum-bot/*.d.ts

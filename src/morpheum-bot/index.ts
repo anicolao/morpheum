@@ -313,7 +313,45 @@ async function main() {
     runtime.bot.setAvailableBots(registry);
   }
 
+  await syncBotRooms(runtimes);
+
   console.log(`Morpheum Bot started (${runtimes.length} identities).`);
+}
+
+async function syncBotRooms(runtimes: Array<Awaited<ReturnType<typeof createBotRuntime>>>) {
+  const roomLists = await Promise.all(
+    runtimes.map(async (runtime) => {
+      try {
+        const rooms = await runtime.client.getJoinedRooms();
+        return { runtime, rooms };
+      } catch (error) {
+        console.warn(`[Rooms][${runtime.config.id}] Failed to list joined rooms:`, error);
+        return { runtime, rooms: [] as string[] };
+      }
+    }),
+  );
+
+  const allRooms = new Set<string>();
+  for (const entry of roomLists) {
+    for (const roomId of entry.rooms) {
+      allRooms.add(roomId);
+    }
+  }
+
+  await Promise.all(
+    roomLists.map(async (entry) => {
+      const joined = new Set(entry.rooms);
+      const joinTargets = Array.from(allRooms).filter((roomId) => !joined.has(roomId));
+      for (const roomId of joinTargets) {
+        try {
+          await entry.runtime.client.joinRoom(roomId);
+          console.log(`[Rooms][${entry.runtime.config.id}] Joined ${roomId}`);
+        } catch (error) {
+          console.warn(`[Rooms][${entry.runtime.config.id}] Failed to join ${roomId}:`, error);
+        }
+      }
+    }),
+  );
 }
 
 function createMatrixClient(token: string, homeserverUrl: string, storagePath: string): MatrixClient {
