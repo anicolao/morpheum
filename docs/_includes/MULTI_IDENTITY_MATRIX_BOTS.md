@@ -49,29 +49,27 @@ New config file (example):
 {
   "defaults": {
     "llm": { "provider": "ollama", "model": "morpheum-local" },
-    "prompt": "prompts/swe-agent.md"
+    "prompt": "prompts/morpheum.md"
   },
   "bots": [
     {
-      "id": "primary",
+      "id": "morpheum",
       "displayName": "Morpheum",
       "matrix": {
         "homeserverUrl": "https://matrix.example.org",
-        "accessToken": "${ACCESS_TOKEN_PRIMARY}",
-        "storagePath": "bot.primary.json"
+        "accessToken": "${ACCESS_TOKEN_MORPHEUM}",
+        "storagePath": "bot.morpheum.json"
       }
     },
     {
-      "id": "reviewer",
-      "displayName": "Morpheum-Review",
+      "id": "product",
+      "displayName": "Product",
       "matrix": {
         "homeserverUrl": "https://matrix.example.org",
-        "username": "${MATRIX_USERNAME_REVIEW}",
-        "password": "${MATRIX_PASSWORD_REVIEW}",
-        "storagePath": "bot.reviewer.json"
+        "accessToken": "${ACCESS_TOKEN_PRODUCT}",
+        "storagePath": "bot.product.json"
       },
-      "prompt": "prompts/reviewer.md",
-      "llm": { "provider": "openai", "model": "gpt-4o-mini" }
+      "prompt": "prompts/product.md"
     }
   ]
 }

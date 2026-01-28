@@ -257,7 +257,8 @@ async function createBotRuntime(config: ResolvedBotConfig, debugMode: boolean): 
 
 // Main execution function
 async function main() {
-  const configPath = process.env.MORPHEUM_BOTS_CONFIG;
+  const defaultConfigPath = fs.existsSync('morpheum-bots.json') ? 'morpheum-bots.json' : undefined;
+  const configPath = process.env.MORPHEUM_BOTS_CONFIG || defaultConfigPath;
 
   if (parsedArgs.register && configPath) {
     console.error("Error: --register is not supported when MORPHEUM_BOTS_CONFIG is set.");

@@ -1,0 +1,28 @@
+{
+  "defaults": {
+    "llm": { "provider": "ollama", "model": "morpheum-local" },
+    "prompt": "prompts/morpheum.md",
+    "matrix": {
+      "homeserverUrl": "${HOMESERVER_URL}"
+    }
+  },
+  "bots": [
+    {
+      "id": "morpheum",
+      "displayName": "Morpheum",
+      "matrix": {
+        "accessToken": "${ACCESS_TOKEN_MORPHEUM}",
+        "storagePath": "bot.morpheum.json"
+      }
+    },
+    {
+      "id": "product",
+      "displayName": "Product",
+      "prompt": "prompts/product.md",
+      "matrix": {
+        "accessToken": "${ACCESS_TOKEN_PRODUCT}",
+        "storagePath": "bot.product.json"
+      }
+    }
+  ]
+}
