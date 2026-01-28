@@ -17,6 +17,13 @@ import { randomUUID } from "crypto";
 
 type MessageSender = (message: string, html?: string) => Promise<void>;
 
+type DelegationResult = {
+  targetLabel: string;
+  requestId: string;
+  messages: string[];
+  summary: string;
+};
+
 export interface BotRegistryEntry {
   id: string;
   displayName?: string;
@@ -80,6 +87,15 @@ export class MorpheumBot {
   private personaDisplayName?: string;
   private systemPrompt: string;
   private availableBots: BotRegistryEntry[] = [];
+  private pendingDelegation?: {
+    roomId: string;
+    target: BotRegistryEntry;
+    requestId: string;
+    messages: string[];
+    resolve: (result: DelegationResult) => void;
+    reject: (error: Error) => void;
+    timeoutId?: NodeJS.Timeout;
+  };
 
   private currentLLMClient?: LLMClient;
   private currentLLMClientPromise?: Promise<LLMClient>;
@@ -178,6 +194,29 @@ export class MorpheumBot {
 
   setAvailableBots(bots: BotRegistryEntry[]): void {
     this.availableBots = bots;
+  }
+
+  async handleDelegationMessage(roomId: string, event: { sender: string; content?: { body?: string } }): Promise<void> {
+    if (!this.pendingDelegation || this.pendingDelegation.roomId !== roomId) {
+      return;
+    }
+
+    const body = event.content?.body;
+    if (!body) {
+      return;
+    }
+
+    if (!this.matchesDelegationSender(this.pendingDelegation.target, event.sender)) {
+      return;
+    }
+
+    this.pendingDelegation.messages.push(body);
+
+    if (this.isDelegationComplete(body)) {
+      const result = this.buildDelegationResult(this.pendingDelegation);
+      this.pendingDelegation.resolve(result);
+      this.clearPendingDelegation();
+    }
   }
 
   /**
@@ -1428,7 +1467,7 @@ ${contributorsList}${contributorsNote}
       }
       
       // Create a streaming version of the SWE agent run
-      await this.runSWEAgentWithStreaming(task, sendMessage);
+      await this.runSWEAgentWithStreaming(task, sendMessage, roomId);
     } finally {
       // Restore original configuration
       if (originalConfig) {
@@ -1437,7 +1476,7 @@ ${contributorsList}${contributorsNote}
     }
   }
 
-  private async runSWEAgentWithStreaming(task: string, sendMessage: MessageSender): Promise<{ role: string; content: string }[]> {
+  private async runSWEAgentWithStreaming(task: string, sendMessage: MessageSender, roomId?: string): Promise<{ role: string; content: string }[]> {
     // Special handling for Copilot - it doesn't use the iterative SWE agent pattern
     if (this.currentLLMProvider === 'copilot') {
       return this.runCopilotSession(task, sendMessage);
@@ -1465,7 +1504,7 @@ ${contributorsList}${contributorsNote}
       conversationHistory.push({ role: 'assistant', content: modelResponse });
 
       // Parse and display plan and next step from response
-      const { parseBashCommands, parsePlanAndNextStep } = await import('./responseParser');
+      const { parseBashCommands, parsePlanAndNextStep, parseDelegationNextStep } = await import('./responseParser');
       const { plan, nextStep } = parsePlanAndNextStep(modelResponse);
       
       // Display plan if found (typically on first iteration)
@@ -1487,6 +1526,20 @@ ${nextStep}`;
         if (nextStep.includes("Job's done!")) {
           await sendMessage("✓ Job's done!");
           break;
+        }
+      }
+
+      if (nextStep) {
+        const delegation = parseDelegationNextStep(nextStep);
+        if (delegation) {
+          const delegationResult = await this.handleDelegationRequest(delegation, sendMessage, roomId);
+          if (delegationResult) {
+            conversationHistory.push({
+              role: 'tool',
+              content: `Delegation result from ${delegationResult.targetLabel} (id: ${delegationResult.requestId}):\n${delegationResult.summary}`,
+            });
+            continue;
+          }
         }
       }
 
@@ -1574,6 +1627,148 @@ ${spoilerContent}
     }
 
     return conversationHistory;
+  }
+
+  private async handleDelegationRequest(
+    delegation: { target: string; task: string },
+    sendMessage: MessageSender,
+    roomId?: string,
+  ): Promise<DelegationResult | null> {
+    if (!roomId) {
+      await sendMessage('❌ Delegation requires a room context. No roomId available.');
+      return null;
+    }
+
+    if (this.pendingDelegation) {
+      await sendMessage('⚠️ Delegation already in progress. Please wait for it to complete.');
+      return null;
+    }
+
+    if (!this.availableBots.length) {
+      await sendMessage('❌ No bot registry entries available for delegation.');
+      return null;
+    }
+
+    const targetEntry = this.resolveTargetBot(delegation.target);
+    if (!targetEntry) {
+      await sendMessage(`❌ Unknown bot "${delegation.target}". Use !bot list to see available identities.`);
+      return null;
+    }
+
+    const requestId = randomUUID();
+    const requester = this.personaDisplayName || this.personaId;
+    const mention = targetEntry.userId || (delegation.target.startsWith('@') ? delegation.target : `@${delegation.target}`);
+    const requestText = `${mention}: ${delegation.task} (from ${requester}, id: ${requestId})`;
+
+    const pending = new Promise<DelegationResult>((resolve, reject) => {
+      this.pendingDelegation = {
+        roomId,
+        target: targetEntry,
+        requestId,
+        messages: [],
+        resolve,
+        reject,
+      };
+    });
+
+    const timeoutMs = Number(process.env.MORPHEUM_DELEGATION_TIMEOUT_MS || 300000);
+    this.pendingDelegation!.timeoutId = setTimeout(() => {
+      this.pendingDelegation?.reject(new Error('Delegation timed out waiting for response.'));
+      this.clearPendingDelegation();
+    }, timeoutMs);
+
+    try {
+      await sendMessage(requestText);
+      await sendMessage(`⏳ Delegated to ${mention}. Waiting for completion...`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.clearPendingDelegation();
+      await sendMessage(`⚠️ Delegation failed to send: ${message}`);
+      return {
+        targetLabel: this.formatTargetLabel(targetEntry),
+        requestId,
+        messages: [],
+        summary: `Delegation failed to send: ${message}`,
+      };
+    }
+
+    try {
+      return await pending;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await sendMessage(`⚠️ Delegation failed: ${message}`);
+      return {
+        targetLabel: this.formatTargetLabel(targetEntry),
+        requestId,
+        messages: [],
+        summary: `Delegation failed: ${message}`,
+      };
+    }
+  }
+
+  private resolveTargetBot(target: string): BotRegistryEntry | null {
+    const normalizedTarget = target.toLowerCase();
+    return (
+      this.availableBots.find((bot) =>
+        bot.id.toLowerCase() === normalizedTarget ||
+        (bot.userId && bot.userId.toLowerCase() === normalizedTarget) ||
+        (bot.displayName && bot.displayName.toLowerCase() === normalizedTarget)
+      ) || null
+    );
+  }
+
+  private matchesDelegationSender(target: BotRegistryEntry, sender: string): boolean {
+    if (target.userId) {
+      return target.userId.toLowerCase() === sender.toLowerCase();
+    }
+    const senderLocalpart = sender.split(':')[0].replace(/^@/, '').toLowerCase();
+    return target.id.toLowerCase() === senderLocalpart;
+  }
+
+  private isDelegationComplete(message: string): boolean {
+    return message.includes("Job's done!") || message.includes('Job’s done!');
+  }
+
+  private buildDelegationResult(delegation: {
+    target: BotRegistryEntry;
+    requestId: string;
+    messages: string[];
+  }): DelegationResult {
+    const summary = this.summarizeDelegationMessages(delegation.messages);
+    return {
+      targetLabel: this.formatTargetLabel(delegation.target),
+      requestId: delegation.requestId,
+      messages: delegation.messages,
+      summary,
+    };
+  }
+
+  private summarizeDelegationMessages(messages: string[]): string {
+    if (!messages.length) {
+      return 'No response content captured.';
+    }
+
+    const joined = messages.join('\n');
+    const maxChars = 4000;
+    if (joined.length <= maxChars) {
+      return joined;
+    }
+
+    return `${joined.slice(0, maxChars)}\n...(truncated)`;
+  }
+
+  private formatTargetLabel(target: BotRegistryEntry): string {
+    if (target.displayName) {
+      return `${target.id} (${target.displayName})`;
+    }
+    return target.id;
+  }
+
+  private clearPendingDelegation(): void {
+    if (this.pendingDelegation?.timeoutId) {
+      clearTimeout(this.pendingDelegation.timeoutId);
+    }
+    this.pendingDelegation = undefined;
   }
 
   /**

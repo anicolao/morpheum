@@ -394,6 +394,8 @@ function setupClientHandlers(
       const body = event.content?.body;
       if (!body) return;
 
+      await bot.handleDelegationMessage(roomId, event);
+
       const sendMessage = async (message: string, html?: string) => {
         if (html) {
           queueMessage(roomId, {

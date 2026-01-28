@@ -34,3 +34,22 @@ export function parsePlanAndNextStep(text: string): { plan?: string; nextStep?: 
   return result;
 }
 
+export function parseDelegationNextStep(nextStep?: string): { target: string; task: string } | null {
+  if (!nextStep) {
+    return null;
+  }
+
+  const match = nextStep.match(/@([^\s:]+)\s*:\s*(.+)/);
+  if (!match) {
+    return null;
+  }
+
+  const target = match[1]?.trim();
+  const task = match[2]?.trim();
+
+  if (!target || !task) {
+    return null;
+  }
+
+  return { target, task };
+}
