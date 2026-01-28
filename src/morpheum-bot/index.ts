@@ -319,8 +319,22 @@ async function main() {
 }
 
 async function syncBotRooms(runtimes: Array<Awaited<ReturnType<typeof createBotRuntime>>>) {
-  const roomLists = await Promise.all(
-    runtimes.map(async (runtime) => {
+  const inviter = runtimes.find((runtime) => runtime.config.id === "morpheum") ?? runtimes[0];
+  if (!inviter) {
+    return;
+  }
+
+  let inviterRooms: string[] = [];
+  try {
+    inviterRooms = await inviter.client.getJoinedRooms();
+  } catch (error) {
+    console.warn(`[Rooms][${inviter.config.id}] Failed to list joined rooms:`, error);
+    return;
+  }
+
+  const otherRuntimes = runtimes.filter((runtime) => runtime !== inviter);
+  const otherRoomLists = await Promise.all(
+    otherRuntimes.map(async (runtime) => {
       try {
         const rooms = await runtime.client.getJoinedRooms();
         return { runtime, rooms };
@@ -331,18 +345,18 @@ async function syncBotRooms(runtimes: Array<Awaited<ReturnType<typeof createBotR
     }),
   );
 
-  const allRooms = new Set<string>();
-  for (const entry of roomLists) {
-    for (const roomId of entry.rooms) {
-      allRooms.add(roomId);
-    }
-  }
-
   await Promise.all(
-    roomLists.map(async (entry) => {
+    otherRoomLists.map(async (entry) => {
       const joined = new Set(entry.rooms);
-      const joinTargets = Array.from(allRooms).filter((roomId) => !joined.has(roomId));
+      const joinTargets = inviterRooms.filter((roomId) => !joined.has(roomId));
       for (const roomId of joinTargets) {
+        try {
+          await inviter.client.inviteUser(entry.runtime.userId, roomId);
+          console.log(`[Rooms][${inviter.config.id}] Invited ${entry.runtime.userId} to ${roomId}`);
+        } catch (error) {
+          console.warn(`[Rooms][${inviter.config.id}] Failed to invite ${entry.runtime.userId} to ${roomId}:`, error);
+        }
+
         try {
           await entry.runtime.client.joinRoom(roomId);
           console.log(`[Rooms][${entry.runtime.config.id}] Joined ${roomId}`);
