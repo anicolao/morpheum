@@ -69,6 +69,7 @@ describe('Bot Mention Integration', () => {
     // Set up environment for tests
     process.env.OLLAMA_API_URL = 'http://test-ollama:11434';
     process.env.OLLAMA_MODEL = 'test-model';
+    process.env.MORPHEUM_SKIP_JAIL = '1';
     
     vi.spyOn(fs.promises, 'readFile').mockResolvedValue('# Test Content');
     vi.spyOn(fs.promises, 'readdir').mockResolvedValue([]);
@@ -83,6 +84,7 @@ describe('Bot Mention Integration', () => {
   });
 
   afterEach(() => {
+    delete process.env.MORPHEUM_SKIP_JAIL;
     vi.restoreAllMocks();
   });
 

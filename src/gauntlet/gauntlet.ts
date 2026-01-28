@@ -1,10 +1,9 @@
 import { program } from "commander";
 import { MorpheumBot } from "../morpheum-bot/bot";
 import { SWEAgent } from "../morpheum-bot/sweAgent";
-import { JailClient } from "../morpheum-bot/jailClient";
+import { ensureJailEnvironment } from "../morpheum-bot/jail-environment";
 import { type LLMMetrics, MetricsTracker } from "../morpheum-bot/metrics";
 import { execa } from "execa";
-import * as net from "net";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
 
@@ -478,25 +477,6 @@ async function evaluateSuccessCondition(
   }
 }
 
-async function checkContainerReadiness(port: number, host: string): Promise<boolean> {
-  console.log(`Polling for container readiness on ${host}:${port}...`);
-  for (let i = 0; i < 60; i++) {
-    try {
-      const jailClient = new JailClient(host, port);
-      const response = await jailClient.execute('echo "Ready"');
-      if (response.includes("Ready")) {
-        console.log("Container is ready.");
-        return true;
-      }
-    } catch (error) {
-      // Ignore errors (like ECONNREFUSED) and retry
-    }
-    await new Promise(resolve => setTimeout(resolve, 1000));
-  }
-  console.error("Container did not become ready in time.");
-  return false;
-}
-
 // Placeholder for the evaluation logic
 async function runGauntlet(
   model: string,
@@ -630,11 +610,24 @@ async function runGauntlet(
   }
   // 2. Create a new environment
   const port = 10000 + (Date.now() % 1000);
-  const containerName = await bot.processMessage(
-    `!create ${port}`,
-    "gauntlet",
-    messageSender,
-  );
+  let containerName: string | undefined;
+  try {
+    const { client, containerName: createdName } = await ensureJailEnvironment({
+      host: "localhost",
+      port,
+      forceCreate: true,
+      containerPrefix: "gauntlet-test-",
+      readinessAttempts: 60,
+      readinessIntervalMs: 1000,
+      sendMessage: async (message: string) => {
+        await messageSender(message);
+      },
+    });
+    containerName = createdName;
+    await bot.setJailClient(client);
+  } catch (error) {
+    containerName = undefined;
+  }
   if (!containerName) {
     console.error("Failed to create container.");
     if (progressCallback) {
@@ -646,19 +639,6 @@ async function runGauntlet(
   console.log(`New environment created: ${containerName}`);
   if (progressCallback) {
     await progressCallback(`✅ **Environment ready**: Container ${containerName} created successfully`);
-  }
-
-  // Wait for the container to be ready
-  if (progressCallback) {
-    await progressCallback(`⏳ **Waiting**: Container readiness check...`);
-  }
-  const isReady = await checkContainerReadiness(port, "localhost");
-  if (!isReady) {
-    if (progressCallback) {
-      await progressCallback(`❌ **Task ${taskId} Failed**: Container did not become ready in time`);
-    }
-    results[taskId] = { success: false };
-    return;
   }
 
   // 2.5. Pre-task setup for tasks that need existing files

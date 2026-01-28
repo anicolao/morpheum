@@ -90,6 +90,7 @@ category: "Process Improvement"
     process.env.OPENAI_MODEL = 'gpt-4-test';
     process.env.OPENAI_BASE_URL = 'https://test-openai.com/v1';
     process.env.GITHUB_TOKEN = 'test-github-token';
+    process.env.MORPHEUM_SKIP_JAIL = '1';
     
     mockSendMessage = vi.fn().mockResolvedValue(undefined);
     bot = new MorpheumBot();

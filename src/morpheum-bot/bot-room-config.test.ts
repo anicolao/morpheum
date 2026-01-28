@@ -16,6 +16,7 @@ describe('MorpheumBot - Room-specific Configuration', () => {
     process.env.OLLAMA_MODEL = 'morpheum-local';
     process.env.OLLAMA_API_URL = 'http://localhost:11434';
     delete process.env.OPENAI_API_KEY;
+    process.env.MORPHEUM_SKIP_JAIL = '1';
 
     vi.spyOn(llmClientModule, 'createLLMClient').mockResolvedValue({
       sendStreaming: vi.fn().mockResolvedValue("<next_step>Job's done!</next_step>"),
@@ -37,6 +38,7 @@ describe('MorpheumBot - Room-specific Configuration', () => {
   });
 
   afterEach(() => {
+    delete process.env.MORPHEUM_SKIP_JAIL;
     vi.restoreAllMocks();
   });
 

@@ -57,12 +57,14 @@ describe('Debug Flag Functionality', () => {
     let consoleSpy: any;
     
     beforeEach(() => {
+      process.env.MORPHEUM_SKIP_JAIL = '1';
       // Spy on console.log to capture debug output
       consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     });
 
     afterEach(() => {
       // Restore console.log
+      delete process.env.MORPHEUM_SKIP_JAIL;
       consoleSpy.mockRestore();
     });
 

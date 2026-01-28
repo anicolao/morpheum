@@ -1,13 +1,12 @@
 import { SWEAgent } from "./sweAgent";
 import { JailClient } from "./jailClient";
+import { ensureJailEnvironment } from "./jail-environment";
 import { type LLMClient, type LLMConfig, createLLMClient } from "./llmClient";
 import { TokenManager } from "./token-manager";
-import { execa } from "execa";
 import * as fs from "fs";
 import { formatMarkdown } from "./format-markdown";
 import type { CopilotClient } from "./copilotClient";
 import { getTaskFiles, filterUncompletedTasks, assembleTasksMarkdown, getTaskSummary, searchTasks } from "./task-utils";
-import * as net from "net";
 import { normalizeArgsArray } from "./dash-normalizer";
 import { ProjectRoomManager, ProjectRoomConfig, ProjectRoomCreationOptions } from "./project-room-manager";
 import { parseGitUrl } from "./git-url-parser";
@@ -170,6 +169,13 @@ export class MorpheumBot {
     this.projectRoomManager = new ProjectRoomManager(matrixClient, githubToken);
   }
 
+  async setJailClient(jailClient: JailClient): Promise<void> {
+    this.jailClient = jailClient;
+    const client = await this.getLLMClient();
+    this.sweAgent = new SWEAgent(client, jailClient, this.systemPrompt);
+    this.sweAgentClient = client;
+  }
+
   setAvailableBots(bots: BotRegistryEntry[]): void {
     this.availableBots = bots;
   }
@@ -328,25 +334,18 @@ export class MorpheumBot {
 
   private async handleCreateCommand(sendMessage: MessageSender, port: string) {
     try {
-      await sendMessage("Creating a new environment...");
-      const containerName = `gauntlet-test-${Date.now()}`;
-      const { stdout, stderr } = await execa(
-        "nix",
-        ["develop", "-c", "./run.sh", containerName, port, `${parseInt(port) + 1}`],
-        { cwd: "./jail", stdio: "pipe" },
-      );
-      await sendMessage(
-        `Successfully created container: ${containerName}\nStdout:\n${stdout}\nStderr:\n${stderr}`,
-      );
       const jailHost = process.env.JAIL_HOST || "localhost";
-      const newJailClient = new JailClient(jailHost, parseInt(port, 10));
-      this.jailClient = newJailClient;
-      const client = await this.getLLMClient();
-      this.sweAgent = new SWEAgent(client, newJailClient, this.systemPrompt);
-      this.sweAgentClient = client;
-      await sendMessage(
-        `Agent reset to talk to the new container on port ${port}`,
-      );
+      const { client, containerName } = await ensureJailEnvironment({
+        host: jailHost,
+        port: parseInt(port, 10),
+        forceCreate: true,
+        containerPrefix: "gauntlet-test-",
+        readinessAttempts: 60,
+        readinessIntervalMs: 1000,
+        sendMessage,
+      });
+      await this.setJailClient(client);
+      await sendMessage(`Agent reset to talk to the new container on port ${port}`);
       return containerName;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -1423,6 +1422,10 @@ ${contributorsList}${contributorsNote}
         : this.llmConfig[this.currentLLMProvider].model;
       
       await sendMessage(`🚀 Working on: "${task}" using ${this.currentLLMProvider} (${identifier})...`);
+
+      if (this.currentLLMProvider !== 'copilot') {
+        await this.ensureJailEnvironmentForTask(sendMessage);
+      }
       
       // Create a streaming version of the SWE agent run
       await this.runSWEAgentWithStreaming(task, sendMessage);
@@ -1605,6 +1608,34 @@ ${spoilerContent}
     
     conversationHistory.push({ role: 'assistant', content: response });
     return conversationHistory;
+  }
+
+  private async ensureJailEnvironmentForTask(sendMessage: MessageSender): Promise<void> {
+    if (process.env.MORPHEUM_SKIP_JAIL === '1') {
+      return;
+    }
+
+    const jailHost = process.env.JAIL_HOST || "localhost";
+    const jailPort = parseInt(process.env.JAIL_PORT || "10001", 10);
+    const allowCreate = jailHost === "localhost" || jailHost === "127.0.0.1";
+
+    try {
+      const { client } = await ensureJailEnvironment({
+        host: jailHost,
+        port: jailPort,
+        forceCreate: false,
+        allowCreate,
+        containerPrefix: "morpheum-run-",
+        readinessAttempts: 60,
+        readinessIntervalMs: 1000,
+        sendMessage,
+      });
+      await this.setJailClient(client);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      await sendMessage(`❌ Failed to initialize environment: ${errorMessage}`);
+      throw error;
+    }
   }
 
   /**
